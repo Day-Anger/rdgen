@@ -35,8 +35,14 @@ MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 print("--------------")
+print(SECRET_KEY)
 print(GHUSER)
+print(GHBEARER)
 print(GENURL)
+print(GHBRANCH)
+print(ZIP_PASSWORD)
+print(PROTOCOL)
+print(REPONAME)
 print("--------------")
 
 # SECURITY WARNING: don't run with debug turned on in production!

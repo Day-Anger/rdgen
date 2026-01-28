@@ -200,7 +200,7 @@ def generator_view(request):
             for line in overrideManual.splitlines():
                 k, value = line.split('=')
                 decodedCustom['override-settings'][k.strip()] = value.strip()
-            
+
             decodedCustomJson = json.dumps(decodedCustom)
 
             string_bytes = decodedCustomJson.encode("ascii")
@@ -236,7 +236,7 @@ def generator_view(request):
             else:
                 url = 'https://api.github.com/repos/'+_settings.GHUSER+'/'+_settings.REPONAME+'/actions/workflows/generator-windows.yml/dispatches'
 
-            #url = 'https://api.github.com/repos/'+_settings.GHUSER+'/rustdesk/actions/workflows/test.yml/dispatches'  
+            #url = 'https://api.github.com/repos/'+_settings.GHUSER+'/rustdesk/actions/workflows/test.yml/dispatches'
             inputs_raw = {
                 "server":server,
                 "key":key,
@@ -294,7 +294,7 @@ def generator_view(request):
                     "version":version,
                     "zip_url":zip_url
                 }
-            } 
+            }
             #print(data)
             headers = {
                 'Accept':  'application/vnd.github+json',
@@ -308,7 +308,9 @@ def generator_view(request):
             if response.status_code == 204 or response.status_code == 200:
                 return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"Starting generator...please wait", 'platform':platform})
             else:
-                return JsonResponse({"error": "Something went wrong"})
+                response_json = response.json()
+                print(f"Response JSON: {response_json}")
+                return JsonResponse({"error": "Something went wrong("+response_json+")"})
     else:
         form = GenerateForm()
     #return render(request, 'maintenance.html')
@@ -406,13 +408,13 @@ def resize_and_encode_icon(imagefile):
     resized64 = base64.b64encode(resized_imagefile.read())
     #print(resized64)
     return resized64
- 
+
 #the following is used when accessed from an external source, like the rustdesk api server
 def startgh(request):
     #print(request)
     data_ = json.loads(request.body)
     ####from here run the github action, we need user, repo, access token.
-    url = 'https://api.github.com/repos/'+_settings.GHUSER+'/'+_settings.REPONAME+'/actions/workflows/generator-'+data_.get('platform')+'.yml/dispatches'  
+    url = 'https://api.github.com/repos/'+_settings.GHUSER+'/'+_settings.REPONAME+'/actions/workflows/generator-'+data_.get('platform')+'.yml/dispatches'
     data = {
         "ref": _settings.GHBRANCH,
         "inputs":{
@@ -427,7 +429,7 @@ def startgh(request):
             "extras":data_.get('extras'),
             "filename":data_.get('filename')
         }
-    } 
+    }
     headers = {
         'Accept':  'application/vnd.github+json',
         'Content-Type': 'application/json',
@@ -453,7 +455,7 @@ def save_png(file, uuid, domain, name):
         except Exception as e:  # Catch general exceptions during decoding
             print(f"Error decoding base64: {e}")
             return None
-        
+
     with open(file_save_path, "wb+") as f:
         for chunk in file.chunks():
             f.write(chunk)
@@ -479,13 +481,13 @@ def cleanup_secrets(request):
     # Pass the UUID as a query param or in JSON body
     data = json.loads(request.body)
     my_uuid = data.get('uuid')
-    
+
     if not my_uuid:
         return HttpResponse("Missing UUID", status=400)
 
     # 1. Find the files in your temp directory matching the UUID
     temp_dir = os.path.join('temp_zips')
-    
+
     # We look for any file starting with 'secrets_' and containing the uuid
     for filename in os.listdir(temp_dir):
         if my_uuid in filename and filename.endswith('.zip'):
