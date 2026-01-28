@@ -5,3 +5,4 @@ gunicorn.conf
 .env
 /png
 /temp_zips
+/exe

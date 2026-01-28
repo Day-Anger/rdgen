@@ -193,33 +193,30 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          # Экранируем compname для использования в sed
+          APPNAME="${{ env.appname }}"
+          FILENAME="${{ env.filename }}"
           COMPNAME="${{ env.compname }}"
-          ESCAPED_COMPNAME=$(echo "$COMPNAME" | sed -e 's/[\/&]/\\&/g' -e 's/|/\\|/g')
 
-          # ./Cargo.toml
-          sed -i -e "s|description = \"RustDesk Remote Desktop\"|description = \"${{ env.appname }}\"|" ./Cargo.toml
-          sed -i -e "s|ProductName = \"RustDesk\"|ProductName = \"${{ env.appname }}\"|" ./Cargo.toml
-          sed -i -e "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"${{ env.appname }}\"|" ./Cargo.toml
-          sed -i -e "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"${{ env.appname }}.exe\"|" ./Cargo.toml
-          # ./libs/portable/Cargo.toml
-          sed -i -e "s|description = \"RustDesk Remote Desktop\"|description = \"${{ env.appname }}\"|" ./libs/portable/Cargo.toml
-          sed -i -e "s|ProductName = \"RustDesk\"|ProductName = \"${{ env.appname }}\"|" ./libs/portable/Cargo.toml
-          sed -i -e "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"${{ env.appname }}\"|" ./libs/portable/Cargo.toml
-          sed -i -e "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"${{ env.appname }}.exe\"|" ./libs/portable/Cargo.toml
-          # ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|\"RustDesk Remote Desktop\"|\"${{ env.appname }}\"|" ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|VALUE \"InternalName\", \"rustdesk\" \"\\0\"|VALUE \"InternalName\", \"${{ env.appname }}\" \"\\0\"|" ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|\"rustdesk.exe\"|\"${{ env.filename }}\"|" ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|\"RustDesk\"|\"${{ env.appname }}\"|" ./flutter/windows/runner/Runner.rc
-          # ./src/lang/en.rs
-          # change powered by rustdesk to powered by compname
+          perl -i -pe 's|description = "RustDesk Remote Desktop"|description = "$ENV{APPNAME}"|g' ./Cargo.toml
+          perl -i -pe 's|ProductName = "RustDesk"|ProductName = "$ENV{APPNAME}"|g' ./Cargo.toml
+          perl -i -pe 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "$ENV{APPNAME}"|g' ./Cargo.toml
+          perl -i -pe 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "$ENV{APPNAME}.exe"|g' ./Cargo.toml
+
+          perl -i -pe 's|description = "RustDesk Remote Desktop"|description = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
+          perl -i -pe 's|ProductName = "RustDesk"|ProductName = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
+          perl -i -pe 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
+          perl -i -pe 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "$ENV{APPNAME}.exe"|g' ./libs/portable/Cargo.toml
+
+          perl -i -pe 's|"RustDesk Remote Desktop"|"$ENV{APPNAME}"|g' ./flutter/windows/runner/Runner.rc
+          perl -i -pe 's|VALUE "InternalName", "rustdesk" "\\0"|VALUE "InternalName", "$ENV{APPNAME}" "\\0"|g' ./flutter/windows/runner/Runner.rc
+          perl -i -pe 's|"rustdesk.exe"|"$ENV{FILENAME}"|g' ./flutter/windows/runner/Runner.rc
+          perl -i -pe 's|"RustDesk"|"$ENV{APPNAME}"|g' ./flutter/windows/runner/Runner.rc
+
           if [ ! -z "$COMPNAME" ]; then
-            # Используем экранированное значение для поиска файлов и замены
-            find ./src/lang -name "*.rs" -exec sed -i "s|RustDesk|${ESCAPED_COMPNAME}|g" {} \;
+            find ./src/lang -name "*.rs" -exec perl -i -pe 's|RustDesk|$ENV{COMPNAME}|g' {} \;
           fi
-          find ./src/lang -name "*.rs" -exec sed -i -e "s|RustDesk|${{ env.appname }}|g" {} \;
-          sed -i -e "s|RustDesk|${{ env.appname }}|g" ./res/msi/Package/License.rtf
+          find ./src/lang -name "*.rs" -exec perl -i -pe 's|RustDesk|$ENV{APPNAME}|g' {} \;
+          perl -i -pe 's|RustDesk|$ENV{APPNAME}|g' ./res/msi/Package/License.rtf
 
       - name: fix registry if appname has a space
         if: contains(env.appname, ' ')
@@ -246,19 +243,15 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
-          # Экранируем значение для использования в sed
           COMPNAME="${{ env.compname }}"
-          ESCAPED_COMPNAME=$(echo "$COMPNAME" | sed -e 's/[\/&]/\\&/g' -e 's/|/\\|/g')
-
-          # Используем sed с экранированным значением
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i -e "s|PURSLANE|${ESCAPED_COMPNAME}|g" ./res/msi/preprocess.py
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./res/msi/preprocess.py
-          sed -i -e "s|\"Copyright © 2025 Purslane Ltd\\. All rights reserved\\.\"|\"Copyright © 2025 ${ESCAPED_COMPNAME}. All rights reserved.\"|g" ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./flutter/windows/runner/Runner.rc
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./Cargo.toml
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./libs/portable/Cargo.toml
-          sed -i -e "s|Purslane Ltd|${ESCAPED_COMPNAME}|g" ./res/msi/Package/License.rtf
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          perl -i -pe 's|PURSLANE|$ENV{COMPNAME}|g' ./res/msi/preprocess.py
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./res/msi/preprocess.py
+          perl -i -pe 's|"Copyright © 2025 Purslane Ltd\. All rights reserved\."|"Copyright © 2025 $ENV{COMPNAME}. All rights reserved."|g' ./flutter/windows/runner/Runner.rc
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./flutter/windows/runner/Runner.rc
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./Cargo.toml
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./libs/portable/Cargo.toml
+          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./res/msi/Package/License.rtf
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
