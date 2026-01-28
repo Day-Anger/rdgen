@@ -197,26 +197,31 @@ jobs:
           FILENAME="${{ env.filename }}"
           COMPNAME="${{ env.compname }}"
 
-          perl -i -pe 's|description = "RustDesk Remote Desktop"|description = "$ENV{APPNAME}"|g' ./Cargo.toml
-          perl -i -pe 's|ProductName = "RustDesk"|ProductName = "$ENV{APPNAME}"|g' ./Cargo.toml
-          perl -i -pe 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "$ENV{APPNAME}"|g' ./Cargo.toml
-          perl -i -pe 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "$ENV{APPNAME}.exe"|g' ./Cargo.toml
+          # ./Cargo.toml
+          sed -i "s|description = \"RustDesk Remote Desktop\"|description = \"$APPNAME\"|g" ./Cargo.toml
+          sed -i "s|ProductName = \"RustDesk\"|ProductName = \"$APPNAME\"|g" ./Cargo.toml
+          sed -i "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"$APPNAME\"|g" ./Cargo.toml
+          sed -i "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"$APPNAME.exe\"|g" ./Cargo.toml
 
-          perl -i -pe 's|description = "RustDesk Remote Desktop"|description = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
-          perl -i -pe 's|ProductName = "RustDesk"|ProductName = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
-          perl -i -pe 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "$ENV{APPNAME}"|g' ./libs/portable/Cargo.toml
-          perl -i -pe 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "$ENV{APPNAME}.exe"|g' ./libs/portable/Cargo.toml
+          # ./libs/portable/Cargo.toml
+          sed -i "s|description = \"RustDesk Remote Desktop\"|description = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
+          sed -i "s|ProductName = \"RustDesk\"|ProductName = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
+          sed -i "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
+          sed -i "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"$APPNAME.exe\"|g" ./libs/portable/Cargo.toml
 
-          perl -i -pe 's|"RustDesk Remote Desktop"|"$ENV{APPNAME}"|g' ./flutter/windows/runner/Runner.rc
-          perl -i -pe 's|VALUE "InternalName", "rustdesk" "\\0"|VALUE "InternalName", "$ENV{APPNAME}" "\\0"|g' ./flutter/windows/runner/Runner.rc
-          perl -i -pe 's|"rustdesk.exe"|"$ENV{FILENAME}"|g' ./flutter/windows/runner/Runner.rc
-          perl -i -pe 's|"RustDesk"|"$ENV{APPNAME}"|g' ./flutter/windows/runner/Runner.rc
+          # ./flutter/windows/runner/Runner.rc
+          sed -i "s|\"RustDesk Remote Desktop\"|\"$APPNAME\"|g" ./flutter/windows/runner/Runner.rc
+          sed -i "s|VALUE \"InternalName\", \"rustdesk\" \"\\0\"|VALUE \"InternalName\", \"$APPNAME\" \"\\0\"|g" ./flutter/windows/runner/Runner.rc
+          sed -i "s|\"rustdesk.exe\"|\"$FILENAME\"|g" ./flutter/windows/runner/Runner.rc
+          sed -i "s|\"RustDesk\"|\"$APPNAME\"|g" ./flutter/windows/runner/Runner.rc
 
+          # ./src/lang/en.rs
+          # change powered by rustdesk to powered by compname
           if [ ! -z "$COMPNAME" ]; then
-            find ./src/lang -name "*.rs" -exec perl -i -pe 's|RustDesk|$ENV{COMPNAME}|g' {} \;
+            find ./src/lang -name "*.rs" -exec sed -i "s|RustDesk|$COMPNAME|g" {} \;
           fi
-          find ./src/lang -name "*.rs" -exec perl -i -pe 's|RustDesk|$ENV{APPNAME}|g' {} \;
-          perl -i -pe 's|RustDesk|$ENV{APPNAME}|g' ./res/msi/Package/License.rtf
+          find ./src/lang -name "*.rs" -exec sed -i "s|RustDesk|$APPNAME|g" {} \;
+          sed -i "s|RustDesk|$APPNAME|g" ./res/msi/Package/License.rtf
 
       - name: fix registry if appname has a space
         if: contains(env.appname, ' ')
@@ -244,14 +249,14 @@ jobs:
         shell: bash
         run: |
           COMPNAME="${{ env.compname }}"
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          perl -i -pe 's|PURSLANE|$ENV{COMPNAME}|g' ./res/msi/preprocess.py
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./res/msi/preprocess.py
-          perl -i -pe 's|"Copyright © 2025 Purslane Ltd\. All rights reserved\."|"Copyright © 2025 $ENV{COMPNAME}. All rights reserved."|g' ./flutter/windows/runner/Runner.rc
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./flutter/windows/runner/Runner.rc
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./Cargo.toml
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./libs/portable/Cargo.toml
-          perl -i -pe 's|Purslane Ltd|$ENV{COMPNAME}|g' ./res/msi/Package/License.rtf
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i "s|PURSLANE|$COMPNAME|g" ./res/msi/preprocess.py
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./res/msi/preprocess.py
+          sed -i "s|\"Copyright © 2025 Purslane Ltd\\. All rights reserved\\.\"|\"Copyright © 2025 $COMPNAME. All rights reserved.\"|g" ./flutter/windows/runner/Runner.rc
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./flutter/windows/runner/Runner.rc
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./Cargo.toml
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./libs/portable/Cargo.toml
+          sed -i "s|Purslane Ltd|$COMPNAME|g" ./res/msi/Package/License.rtf
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
