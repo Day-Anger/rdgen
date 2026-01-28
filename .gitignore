@@ -2,3 +2,6 @@
 db.sqlite3
 gunicorn.conf
 .venv
+.env
+/png
+/temp_zips
