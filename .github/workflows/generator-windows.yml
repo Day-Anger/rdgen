@@ -177,10 +177,28 @@ jobs:
           name: bridge-artifact
           path: ./
 
+      # Кэширование ImageMagick
+      - name: Cache ImageMagick
+        id: cache-imagemagick
+        uses: actions/cache@v3
+        with:
+          path: C:\Program Files\ImageMagick*
+          key: imagemagick-windows-v1
+
+      # Установка (только если кэша нет)
       - name: Install ImageMagick on Windows
+        if: steps.cache-imagemagick.outputs.cache-hit != 'true'
+        run: choco install -y imagemagick.app --no-progress
+
+      # Добавление в PATH (нужно всегда)
+      - name: Add ImageMagick to PATH
         run: |
-          choco install -y imagemagick.app --no-progress
-          Get-ChildItem -Path "${env:ProgramFiles}" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+          Get-ChildItem -Path "$env:ProgramFiles" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
+
+      # - name: Install ImageMagick on Windows
+      #   run: |
+      #     choco install -y imagemagick.app --no-progress
+      #     Get-ChildItem -Path "${env:ProgramFiles}" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
 
       - name: fix flutter_gpu_texture_renderer (fixed in master rustdesk)
         shell: bash
@@ -190,11 +208,11 @@ jobs:
 
       - name: change appname to custom
         if: env.appname != 'rustdesk'
-        # Убрали continue-on-error, ошибки нужно видеть
         shell: python
         env:
+          # ВАЖНО: Включаем UTF-8 и для этого шага тоже
+          PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
-          # Передаем переменные безопасно через ENV
           APPNAME: ${{ env.appname }}
           FILENAME: ${{ env.filename }}
           COMPNAME: ${{ env.compname }}
@@ -211,16 +229,27 @@ jobs:
               print("Error: APPNAME is not set")
               sys.exit(1)
 
-          print(f"Patching AppName: {appname}, Filename: {filename}, Company: {compname}")
+          print(f"Original AppName: {appname}")
 
-          # Функция для безопасной замены текста в файле
-          def patch_file(path, replacements):
+          # --- ПОДГОТОВКА ЭКРАНИРОВАНИЯ ---
+          # 1. Для кода (Rust, TOML): кавычка " -> \"
+          appname_code = appname.replace('"', '\\"')
+
+          # 2. Для RC файлов (Windows): кавычка " -> ""
+          appname_rc = appname.replace('"', '""')
+
+          # 3. Имя файла (exe) не должно содержать кавычек вообще,
+          # но если они там есть, для RC их надо экранировать
+          filename_rc = filename.replace('"', '""')
+
+          print(f"Code escaped: {appname_code}")
+
+          def patch_file(path, replacements, encoding='utf-8-sig'):
               if not os.path.exists(path):
                   print(f"Warning: File not found: {path}")
                   return
-
               try:
-                  with open(path, 'r', encoding='utf-8') as f:
+                  with open(path, 'r', encoding=encoding) as f:
                       content = f.read()
 
                   original_content = content
@@ -231,49 +260,56 @@ jobs:
                       with open(path, 'w', encoding='utf-8') as f:
                           f.write(content)
                       print(f"Updated: {path}")
-                  else:
-                      print(f"No changes needed for: {path}")
               except Exception as e:
                   print(f"Error processing {path}: {e}")
                   sys.exit(1)
 
           # 1. Cargo.toml (Root и Portable)
-          # Обратите внимание: Python replace делает точную замену, экранировать кавычки внутри строки не нужно
+          # Используем appname_code (с экранированием \")
           cargo_replacements = [
-              ('description = "RustDesk Remote Desktop"', f'description = "{appname}"'),
-              ('ProductName = "RustDesk"', f'ProductName = "{appname}"'),
-              ('FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{appname}"'),
-              # В оригинале было $APPNAME.exe для Cargo, сохраняем эту логику
-              ('OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{appname}.exe"'),
+              ('description = "RustDesk Remote Desktop"', f'description = "{appname_code}"'),
+              ('ProductName = "RustDesk"', f'ProductName = "{appname_code}"'),
+              ('FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{appname_code}"'),
+              ('OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{appname_code}.exe"'),
           ]
 
           patch_file('./Cargo.toml', cargo_replacements)
           patch_file('./libs/portable/Cargo.toml', cargo_replacements)
 
           # 2. Runner.rc
-          # Порядок важен: сначала более длинные строки, потом короткие
+          # Используем appname_rc (с экранированием "")
           runner_replacements = [
-              ('"RustDesk Remote Desktop"', f'"{appname}"'),
-              ('VALUE "InternalName", "rustdesk"', f'VALUE "InternalName", "{appname}"'),
-              ('"rustdesk.exe"', f'"{filename}"'),
-              ('"RustDesk"', f'"{appname}"'),
+              ('"RustDesk Remote Desktop"', f'"{appname_rc}"'),
+              ('VALUE "InternalName", "rustdesk"', f'VALUE "InternalName", "{appname_rc}"'),
+              ('"rustdesk.exe"', f'"{filename_rc}"'),
+              ('"RustDesk"', f'"{appname_rc}"'),
           ]
           patch_file('./flutter/windows/runner/Runner.rc', runner_replacements)
 
-          # 3. Языковые файлы (src/lang/*.rs) и Лицензия
-          # Логика из вашего bash-скрипта:
-          # Если есть COMPNAME, меняем RustDesk -> COMPNAME.
-          # Затем меняем RustDesk -> APPNAME (это сработает для тех мест, где первая замена не прошла, или если COMPNAME пуст).
-
+          # 3. Языковые файлы и Лицензия
           lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
           lang_files.append('./res/msi/Package/License.rtf')
 
+          # Подготовка имени компании для замены (если оно есть)
+          # Для кода тоже нужно экранирование
+          compname_code = compname.replace('"', '\\"') if compname else ''
+
           for file_path in lang_files:
               replacements = []
-              if compname:
-                  replacements.append(('RustDesk', compname))
 
-              replacements.append(('RustDesk', appname))
+              # Если это RTF файл, там экранирование \" не нужно, используем оригинал или спец. экранирование
+              # Но для простоты, если в названии нет кавычек, разницы нет.
+              # Если файл .rs -> используем _code версии.
+
+              is_rust_file = file_path.endswith('.rs')
+              target_compname = compname_code if is_rust_file else compname
+              target_appname = appname_code if is_rust_file else appname
+
+              # Логика: Сначала меняем RustDesk на Компанию (если задана), остатки на Имя Приложения
+              if target_compname:
+                  replacements.append(('RustDesk', target_compname))
+
+              replacements.append(('RustDesk', target_appname))
 
               patch_file(file_path, replacements)
 
@@ -301,6 +337,8 @@ jobs:
         if: env.compname != 'Purslane Ltd'
         shell: python
         env:
+          # ЭТИ ДВЕ СТРОКИ ОБЯЗАТЕЛЬНЫ ДЛЯ WINDOWS + СПЕЦСИМВОЛОВ
+          PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
           COMPNAME: ${{ env.compname }}
         run: |
@@ -308,29 +346,35 @@ jobs:
           import sys
           import re
 
+          # Теперь Python прочитает строку корректно (UE «"BEL"»)
           compname = os.environ.get('COMPNAME')
           if not compname:
               print("Error: COMPNAME is empty")
               sys.exit(1)
 
-          # 1. Подготовка версий названия с разным экранированием
+          print(f"Original name: {compname}")
 
-          # Для Rust, TOML, Dart, Python: кавычка " должна стать \"
-          # Пример: UE «"BEL"» -> UE «\"BEL\"»
+          # --- ПОДГОТОВКА ВАРИАНТОВ НАЗВАНИЯ ---
+
+          # 1. Для кода (Rust, Dart, Python, TOML)
+          # Нам нужно превратить кавычку " в \"
+          # Пример: UE «"BEL"»  ->  UE «\"BEL\"»
+          # В Rust это будет выглядеть как строка: "UE «\"BEL\"»"
           compname_code = compname.replace('"', '\\"')
 
-          # Для Windows RC файлов: кавычка " должна стать "" (двойная кавычка)
-          # Пример: UE «"BEL"» -> UE «""BEL""»
+          # 2. Для Windows RC файлов
+          # Там кавычка экранируется удвоением: " -> ""
+          # Пример: UE «"BEL"»  ->  UE «""BEL""»
           compname_rc = compname.replace('"', '""')
 
-          # Для RTF (Лицензия): оставляем как есть (обычно RTF переваривает кавычки)
-          compname_raw = compname
+          # 3. Для RTF (Лицензия)
+          # Обычно RTF переваривает кавычки, но лучше экранировать обратный слэш, если он есть
+          compname_rtf = compname.replace('\\', '\\\\')
 
-          print(f"Raw name: {compname}")
           print(f"Code escaped: {compname_code}")
-          print(f"RC escaped: {compname_rc}")
+          print(f"RC escaped:   {compname_rc}")
 
-          # Функция патчинга
+          # Функция для безопасной замены
           def patch_file(path, search, replace, encoding='utf-8-sig'):
               if not os.path.exists(path):
                   print(f"Warning: File not found: {path}")
@@ -345,15 +389,14 @@ jobs:
                           f.write(new_content)
                       print(f"Updated: {path}")
                   else:
-                      # Для отладки можно раскомментировать
-                      # print(f"Skipped: {path} (text not found)")
+                      # print(f"Skipped: {path}")
                       pass
               except Exception as e:
                   print(f"Error patching {path}: {e}")
                   sys.exit(1)
 
-          # --- ГРУППА 1: Файлы кода и конфиги (используем compname_code) ---
-          # Здесь важно, чтобы кавычки были экранированы (\")
+          # --- ГРУППА 1: Обычные файлы (используем compname_code) ---
+          # Здесь мы меняем старое название на новое с экранированными кавычками
           files_code = [
               ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd'),
               ('./res/msi/preprocess.py', 'PURSLANE'),
@@ -369,20 +412,21 @@ jobs:
           import glob
           lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
           for path in lang_files:
-              # В языковых файлах меняем "RustDesk" на экранированное имя
+              # В языковых файлах ищем "RustDesk" и меняем на экранированное имя
+              # Было: ("key", "RustDesk")
+              # Станет: ("key", "UE «\"BEL\"»")
               patch_file(path, 'RustDesk', compname_code)
 
-          # --- ГРУППА 3: Лицензия (используем compname_raw) ---
-          patch_file('./res/msi/Package/License.rtf', 'Purslane Ltd', compname_raw)
+          # --- ГРУППА 3: Лицензия (используем compname_rtf) ---
+          patch_file('./res/msi/Package/License.rtf', 'Purslane Ltd', compname_rtf)
 
-          # --- ГРУППА 4: Runner.rc (используем compname_rc и Regex) ---
+          # --- ГРУППА 4: Runner.rc (используем compname_rc) ---
           runner_rc = './flutter/windows/runner/Runner.rc'
           if os.path.exists(runner_rc):
               with open(runner_rc, 'r', encoding='utf-8-sig') as f:
                   content = f.read()
 
-              # Формируем строку Copyright.
-              # В RC файле внутри кавычек нужно использовать двойные кавычки для экранирования.
+              # Формируем строку Copyright с правильным символом и экранированием для RC
               new_copyright = f"Copyright \u00A9 2025 {compname_rc}. All rights reserved."
 
               # Regex для поиска старого Copyright
@@ -390,8 +434,7 @@ jobs:
 
               new_content, count = re.subn(pattern, new_copyright, content, flags=re.IGNORECASE)
 
-              # Дополнительно меняем просто имя компании (fallback), если оно есть в других полях (например CompanyName)
-              # Тут тоже используем compname_rc
+              # Fallback: если Regex не нашел, меняем просто имя компании
               if 'Purslane Ltd' in new_content:
                    new_content = new_content.replace('Purslane Ltd', compname_rc)
                    count += 1
@@ -475,10 +518,25 @@ jobs:
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
           git apply removeSetupServerTip.diff
 
+      # Кэширование LLVM
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v3
+        with:
+          path: C:\Program Files\LLVM
+          key: llvm-${{ env.LLVM_VERSION }}
+
+      # Установка (использует кэш, если он есть)
       - name: Install LLVM and Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
+          cached: ${{ steps.cache-llvm.outputs.cache-hit }}
+
+      # - name: Install LLVM and Clang
+      #   uses: KyleMayes/install-llvm-action@v1
+      #   with:
+      #     version: ${{ env.LLVM_VERSION }}
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
@@ -489,27 +547,75 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "10% complete"}'
 
+      # 1. Установка Flutter с включенным кэшем
       - name: Install flutter
-        uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
+        uses: subosito/flutter-action@v2.12.0
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true # <--- ЭТО ВАЖНО: кэширует сам SDK Flutter
 
-      # https://github.com/flutter/flutter/issues/155685
+      # 2. Проверка кэша для кастомного движка
+      - name: Cache Custom Flutter Engine
+        id: cache-engine
+        uses: actions/cache@v3
+        with:
+          path: windows-x64-release.zip
+          # Если ссылка на движок поменяется, поменяйте v1 на v2, чтобы сбросить кэш
+          key: custom-engine-windows-v1
+
+      # 3. Скачивание (если нет в кэше) и замена
       - name: Replace engine with rustdesk custom flutter engine
         run: |
           flutter doctor -v
           flutter precache --windows
-          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
-          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
 
+          # Проверяем, восстановился ли файл из кэша. Если нет — качаем.
+          if (-not (Test-Path "windows-x64-release.zip")) {
+              Write-Host "Cache miss: Downloading engine..."
+              Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+          } else {
+              Write-Host "Cache hit: Using cached engine."
+          }
+
+          # Распаковка (Force перезаписывает, если папка есть)
+          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release -Force
+
+          # Перемещение файлов
+          $destPath = "C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/"
+          # Создаем папку назначения на всякий случай, если precache не создал
+          New-Item -ItemType Directory -Force -Path $destPath
+          mv -Force windows-x64-release/* $destPath
+
+      # 4. Патч (Ваш код без изменений)
       - name: Patch flutter
         shell: bash
         run: |
           cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
           cd $(dirname $(dirname $(which flutter)))
           [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+
+      # - name: Install flutter
+      #   uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
+      #   with:
+      #     channel: "stable"
+      #     flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      # # https://github.com/flutter/flutter/issues/155685
+      # - name: Replace engine with rustdesk custom flutter engine
+      #   run: |
+      #     flutter doctor -v
+      #     flutter precache --windows
+      #     Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+      #     Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
+      #     mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+
+      # - name: Patch flutter
+      #   shell: bash
+      #   run: |
+      #     cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
+      #     cd $(dirname $(dirname $(which flutter)))
+      #     [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
@@ -539,6 +645,19 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
+
+      # Это сохранит уже скомпилированные библиотеки
+      - name: Cache vcpkg installed artifacts
+        uses: actions/cache@v3
+        with:
+          path: |
+            C:\vcpkg\installed
+            C:\Users\runneradmin\AppData\Local\vcpkg\archives
+          # Ключ зависит от ОС, версии vcpkg и файла манифеста (списка библиотек)
+          # Если вы поменяете vcpkg.json, кэш сбросится и соберется новый
+          key: vcpkg-cache-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json') }}
+          restore-keys: |
+            vcpkg-cache-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
