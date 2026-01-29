@@ -217,19 +217,21 @@ jobs:
 
       - name: change appname to custom
         if: env.appname != 'rustdesk'
-        shell: cmd
+        shell: python
         env:
-          PYTHONUTF8: 1
-          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
           APPNAME: ${{ env.appname }}
           FILENAME: ${{ env.filename }}
           COMPNAME: ${{ env.compname }}
         run: |
-          chcp 65001
-          python -c "import os, sys, glob;
+          import os
+          import sys
+          import glob
+          import io
 
-          # Настройка вывода в консоль (чтобы не было ромбиков в логах)
-          sys.stdout.reconfigure(encoding='utf-8')
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
           appname = os.environ.get('APPNAME', '')
           filename = os.environ.get('FILENAME', '')
@@ -319,7 +321,6 @@ jobs:
               replacements.append(('RustDesk', target_appname))
 
               patch_file(file_path, replacements)
-          "
 
       - name: fix registry if appname has a space
         if: contains(env.appname, ' ')
@@ -343,17 +344,20 @@ jobs:
 
       - name: change company name
         if: env.compname != 'Purslane Ltd'
-        shell: cmd
+        shell: python
         env:
           PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
           COMPNAME: ${{ env.compname }}
         run: |
-          chcp 65001
-          python -c "import os, sys, re, glob;
+          import os
+          import sys
+          import re
+          import glob
 
-          # Настройка консоли для логов
-          sys.stdout.reconfigure(encoding='utf-8')
+          # ЖЕЛЕЗОБЕТОННЫЙ способ форсировать UTF-8 на Windows-раннере
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
           compname = os.environ.get('COMPNAME')
           if not compname:
