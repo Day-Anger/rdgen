@@ -28,6 +28,7 @@ class GenerateForm(forms.Form):
 
     #Custom Server
     serverIP = forms.CharField(label="Host", required=False)
+    serverPort = forms.CharField(label="Port", required=False)
     apiServer = forms.CharField(label="API Server", required=False)
     key = forms.CharField(label="Key", required=False)
     urlLink = forms.CharField(label="Custom URL for links", required=False)
@@ -103,7 +104,7 @@ class GenerateForm(forms.Form):
                 # Check for square dimensions
                 if width != height:
                     raise forms.ValidationError("Custom App Icon dimensions must be square.")
-                
+
                 return image
             except OSError:  # Handle cases where the uploaded file is not a valid image
                 raise forms.ValidationError("Invalid icon file.")

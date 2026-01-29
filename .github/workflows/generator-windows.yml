@@ -190,38 +190,91 @@ jobs:
 
       - name: change appname to custom
         if: env.appname != 'rustdesk'
-        continue-on-error: true
-        shell: bash
+        # Убрали continue-on-error, ошибки нужно видеть
+        shell: python
+        env:
+          # Передаем переменные безопасно через ENV
+          APPNAME: ${{ env.appname }}
+          FILENAME: ${{ env.filename }}
+          COMPNAME: ${{ env.compname }}
         run: |
-          APPNAME="${{ env.appname }}"
-          FILENAME="${{ env.filename }}"
-          COMPNAME="${{ env.compname }}"
+          import os
+          import glob
+          import sys
 
-          # ./Cargo.toml
-          sed -i "s|description = \"RustDesk Remote Desktop\"|description = \"$APPNAME\"|g" ./Cargo.toml
-          sed -i "s|ProductName = \"RustDesk\"|ProductName = \"$APPNAME\"|g" ./Cargo.toml
-          sed -i "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"$APPNAME\"|g" ./Cargo.toml
-          sed -i "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"$APPNAME.exe\"|g" ./Cargo.toml
+          appname = os.environ.get('APPNAME', '')
+          filename = os.environ.get('FILENAME', '')
+          compname = os.environ.get('COMPNAME', '')
 
-          # ./libs/portable/Cargo.toml
-          sed -i "s|description = \"RustDesk Remote Desktop\"|description = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
-          sed -i "s|ProductName = \"RustDesk\"|ProductName = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
-          sed -i "s|FileDescription = \"RustDesk Remote Desktop\"|FileDescription = \"$APPNAME\"|g" ./libs/portable/Cargo.toml
-          sed -i "s|OriginalFilename = \"rustdesk.exe\"|OriginalFilename = \"$APPNAME.exe\"|g" ./libs/portable/Cargo.toml
+          if not appname:
+              print("Error: APPNAME is not set")
+              sys.exit(1)
 
-          # ./flutter/windows/runner/Runner.rc
-          sed -i "s|\"RustDesk Remote Desktop\"|\"$APPNAME\"|g" ./flutter/windows/runner/Runner.rc
-          sed -i "s|VALUE \"InternalName\", \"rustdesk\" \"\\0\"|VALUE \"InternalName\", \"$APPNAME\" \"\\0\"|g" ./flutter/windows/runner/Runner.rc
-          sed -i "s|\"rustdesk.exe\"|\"$FILENAME\"|g" ./flutter/windows/runner/Runner.rc
-          sed -i "s|\"RustDesk\"|\"$APPNAME\"|g" ./flutter/windows/runner/Runner.rc
+          print(f"Patching AppName: {appname}, Filename: {filename}, Company: {compname}")
 
-          # ./src/lang/en.rs
-          # change powered by rustdesk to powered by compname
-          if [ ! -z "$COMPNAME" ]; then
-            find ./src/lang -name "*.rs" -exec sed -i "s|RustDesk|$COMPNAME|g" {} \;
-          fi
-          find ./src/lang -name "*.rs" -exec sed -i "s|RustDesk|$APPNAME|g" {} \;
-          sed -i "s|RustDesk|$APPNAME|g" ./res/msi/Package/License.rtf
+          # Функция для безопасной замены текста в файле
+          def patch_file(path, replacements):
+              if not os.path.exists(path):
+                  print(f"Warning: File not found: {path}")
+                  return
+
+              try:
+                  with open(path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
+                  original_content = content
+                  for search, replace in replacements:
+                      content = content.replace(search, replace)
+
+                  if content != original_content:
+                      with open(path, 'w', encoding='utf-8') as f:
+                          f.write(content)
+                      print(f"Updated: {path}")
+                  else:
+                      print(f"No changes needed for: {path}")
+              except Exception as e:
+                  print(f"Error processing {path}: {e}")
+                  sys.exit(1)
+
+          # 1. Cargo.toml (Root и Portable)
+          # Обратите внимание: Python replace делает точную замену, экранировать кавычки внутри строки не нужно
+          cargo_replacements = [
+              ('description = "RustDesk Remote Desktop"', f'description = "{appname}"'),
+              ('ProductName = "RustDesk"', f'ProductName = "{appname}"'),
+              ('FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{appname}"'),
+              # В оригинале было $APPNAME.exe для Cargo, сохраняем эту логику
+              ('OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{appname}.exe"'),
+          ]
+
+          patch_file('./Cargo.toml', cargo_replacements)
+          patch_file('./libs/portable/Cargo.toml', cargo_replacements)
+
+          # 2. Runner.rc
+          # Порядок важен: сначала более длинные строки, потом короткие
+          runner_replacements = [
+              ('"RustDesk Remote Desktop"', f'"{appname}"'),
+              ('VALUE "InternalName", "rustdesk"', f'VALUE "InternalName", "{appname}"'),
+              ('"rustdesk.exe"', f'"{filename}"'),
+              ('"RustDesk"', f'"{appname}"'),
+          ]
+          patch_file('./flutter/windows/runner/Runner.rc', runner_replacements)
+
+          # 3. Языковые файлы (src/lang/*.rs) и Лицензия
+          # Логика из вашего bash-скрипта:
+          # Если есть COMPNAME, меняем RustDesk -> COMPNAME.
+          # Затем меняем RustDesk -> APPNAME (это сработает для тех мест, где первая замена не прошла, или если COMPNAME пуст).
+
+          lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
+          lang_files.append('./res/msi/Package/License.rtf')
+
+          for file_path in lang_files:
+              replacements = []
+              if compname:
+                  replacements.append(('RustDesk', compname))
+
+              replacements.append(('RustDesk', appname))
+
+              patch_file(file_path, replacements)
 
       - name: fix registry if appname has a space
         if: contains(env.appname, ' ')
@@ -245,18 +298,64 @@ jobs:
 
       - name: change company name
         if: env.compname != 'Purslane Ltd'
-        continue-on-error: true
-        shell: bash
+        # Убрали continue-on-error, чтобы видеть ошибки сразу
+        shell: python
+        env:
+          # Передаем переменную через окружение, чтобы избежать инъекций
+          COMPNAME: ${{ env.compname }}
         run: |
-          COMPNAME="${{ env.compname }}"
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i "s|PURSLANE|$COMPNAME|g" ./res/msi/preprocess.py
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./res/msi/preprocess.py
-          sed -i "s|\"Copyright © 2025 Purslane Ltd\\. All rights reserved\\.\"|\"Copyright © 2025 $COMPNAME. All rights reserved.\"|g" ./flutter/windows/runner/Runner.rc
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./flutter/windows/runner/Runner.rc
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./Cargo.toml
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./libs/portable/Cargo.toml
-          sed -i "s|Purslane Ltd|$COMPNAME|g" ./res/msi/Package/License.rtf
+          import os
+          import sys
+
+          # Получаем значение безопасно
+          compname = os.environ.get('COMPNAME')
+          if not compname:
+              print("Error: COMPNAME is empty")
+              sys.exit(1)
+
+          print(f"Patching files with company name: {compname}")
+
+          # Список замен: (файл, что_меняем, на_что_меняем)
+          # Обратите внимание: Python делает точную замену текста (literal),
+          # поэтому спецсимволы (., |, &) не сломают скрипт.
+          replacements = [
+              ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd', compname),
+              ('./res/msi/preprocess.py', 'PURSLANE', compname),
+              ('./res/msi/preprocess.py', 'Purslane Ltd', compname),
+              ('./flutter/windows/runner/Runner.rc', 'Purslane Ltd', compname),
+              ('./Cargo.toml', 'Purslane Ltd', compname),
+              ('./libs/portable/Cargo.toml', 'Purslane Ltd', compname),
+              ('./res/msi/Package/License.rtf', 'Purslane Ltd', compname),
+          ]
+
+          # Отдельная сложная замена для Copyright в Runner.rc
+          # Здесь пишем точный текст, который сейчас в файле
+          old_copyright = 'Copyright © 2025 Purslane Ltd. All rights reserved.'
+          new_copyright = f'Copyright © 2025 {compname}. All rights reserved.'
+          replacements.append(('./flutter/windows/runner/Runner.rc', old_copyright, new_copyright))
+
+          for file_path, search_text, replace_text in replacements:
+              try:
+                  if not os.path.exists(file_path):
+                      print(f"Warning: File not found: {file_path}")
+                      continue
+
+                  # Читаем файл в UTF-8
+                  with open(file_path, 'r', encoding='utf-8') as f:
+                      content = f.read()
+
+                  # Проверяем, есть ли что менять
+                  if search_text in content:
+                      new_content = content.replace(search_text, replace_text)
+                      with open(file_path, 'w', encoding='utf-8') as f:
+                          f.write(new_content)
+                      print(f"Updated: {file_path}")
+                  else:
+                      print(f"Skipped (text not found): {file_path} -> searching for '{search_text}'")
+
+              except Exception as e:
+                  print(f"Error processing {file_path}: {e}")
+                  sys.exit(1)
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
@@ -281,15 +380,45 @@ jobs:
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./src/ui/index.tis
 
-      - name: set server, key, and apiserver
-        continue-on-error: true
+      - name: set server, serverPort, key, and apiserver
         shell: bash
+        # Передаем секреты и переменные как ENV переменные Bash,
+        # чтобы избежать проблем со спецсимволами при подстановке
+        env:
+          SERVER_DOMAIN: ${{ env.server }}
+          SERVER_PORT_INPUT: ${{ env.serverPort }}
+          SERVER_KEY: ${{ env.key }}
+          API_SERVER: ${{ env.apiServer }}
         run: |
-          sed -i -e 's|rs-ny.rustdesk.com|${{ env.server }}|' ./libs/hbb_common/src/config.rs
-          sed -i -e 's|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|${{ env.key }}|' ./libs/hbb_common/src/config.rs
-          sed -i -e 's|https://admin.rustdesk.com|${{ env.apiServer }}|' ./src/common.rs
-          # ./flutter/pubspec.yaml
-          #sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
+          # Проверка наличия файла перед началом (чтобы не гадать)
+          if [ ! -f "./libs/hbb_common/src/config.rs" ]; then
+            echo "Error: config.rs not found!"
+            exit 1
+          fi
+
+          # Вычисляем порты
+          SERVER_PORT=$SERVER_PORT_INPUT
+          RELAY_PORT=$((SERVER_PORT + 1))
+          WS_RENDEZVOUS_PORT=$((RELAY_PORT + 1))
+          WS_RELAY_PORT=$((WS_RENDEZVOUS_PORT + 1))
+
+          echo "Setting ports: $SERVER_PORT, $RELAY_PORT, $WS_RENDEZVOUS_PORT, $WS_RELAY_PORT"
+
+          # Замены
+          # Используем переменные окружения bash ($SERVER_DOMAIN), а не шаблоны GH Actions
+          sed -i -e "s|rs-ny.rustdesk.com|$SERVER_DOMAIN|" ./libs/hbb_common/src/config.rs
+
+          # Используем регулярное выражение (0-9)+, чтобы не зависеть от дефолтного порта 21116
+          sed -i -e "s|pub const RENDEZVOUS_PORT: i32 = [0-9]\+;|pub const RENDEZVOUS_PORT: i32 = $SERVER_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const RELAY_PORT: i32 = [0-9]\+;|pub const RELAY_PORT: i32 = $RELAY_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const WS_RENDEZVOUS_PORT: i32 = [0-9]\+;|pub const WS_RENDEZVOUS_PORT: i32 = $WS_RENDEZVOUS_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const WS_RELAY_PORT: i32 = [0-9]\+;|pub const WS_RELAY_PORT: i32 = $WS_RELAY_PORT;|" ./libs/hbb_common/src/config.rs
+
+          # Замена ключа
+          sed -i -e "s|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|$SERVER_KEY|" ./libs/hbb_common/src/config.rs
+
+          # Замена API сервера
+          sed -i -e "s|https://admin.rustdesk.com|$API_SERVER|" ./src/common.rs
 
       - name: allow custom.txt
         continue-on-error: true

@@ -29,12 +29,15 @@ def generator_view(request):
             hidecm = form.cleaned_data['hidecm']
             removeNewVersionNotif = form.cleaned_data['removeNewVersionNotif']
             server = form.cleaned_data['serverIP']
+            serverPort = form.cleaned_data['serverPort']
             key = form.cleaned_data['key']
             apiServer = form.cleaned_data['apiServer']
             urlLink = form.cleaned_data['urlLink']
             downloadLink = form.cleaned_data['downloadLink']
             if not server:
                 server = 'rs-ny.rustdesk.com' #default rustdesk server
+            if not serverPort:
+                serverPort = 21116 #default rustdesk server port
             if not key:
                 key = 'OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=' #default rustdesk key
             if not apiServer:
@@ -239,6 +242,7 @@ def generator_view(request):
             #url = 'https://api.github.com/repos/'+_settings.GHUSER+'/rustdesk/actions/workflows/test.yml/dispatches'
             inputs_raw = {
                 "server":server,
+                "serverPort":serverPort,
                 "key":key,
                 "apiServer":apiServer,
                 "custom":encodedCustom,
@@ -419,6 +423,7 @@ def startgh(request):
         "ref": _settings.GHBRANCH,
         "inputs":{
             "server":data_.get('server'),
+            "serverPort":data_.get('serverPort'),
             "key":data_.get('key'),
             "apiServer":data_.get('apiServer'),
             "custom":data_.get('custom'),
