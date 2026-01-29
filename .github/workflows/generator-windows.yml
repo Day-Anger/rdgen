@@ -445,7 +445,6 @@ jobs:
                   with open(runner_rc, 'w', encoding='utf-8-sig') as f:
                       f.write(new_content)
                   print(f'Updated: {runner_rc}')
-          "
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
