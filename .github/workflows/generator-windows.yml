@@ -77,10 +77,6 @@ jobs:
             }
           # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
-      - name: Check Environment
-        run: |
-          python -c "import sys; import os; print(f'STDOUT encoding: {sys.stdout.encoding}'); print(f'PYTHONUTF8 env: {os.environ.get(\"PYTHONUTF8\")}')"
-
       - name: install python deps
         run: |
           pip install requests pyzipper
