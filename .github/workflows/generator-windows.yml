@@ -80,12 +80,14 @@ jobs:
       - name: install python deps
         run: |
           pip install requests pyzipper
+
       - name: Download, Decrypt, and Mask
         shell: python
         env:
           PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
         run: |
+          import sys
           import requests
           import pyzipper
           import io
@@ -93,6 +95,7 @@ jobs:
           import json
           import time
 
+          # Принудительно устанавливаем кодировку UTF-8
           sys.stdout.reconfigure(encoding='utf-8')
 
           for attempt in range(5):
@@ -118,7 +121,7 @@ jobs:
             print(f"Error: Could not decrypt ZIP. Check if password matches. {e}")
             exit(1)
 
-          with open(os.environ['GITHUB_ENV'], 'a') as env_file:
+          with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
             for key, value in secrets.items():
               print(f"::add-mask::{value}")
               env_file.write(f"{key}={value}\n")
