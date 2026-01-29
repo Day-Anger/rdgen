@@ -313,33 +313,24 @@ jobs:
               print("Error: COMPNAME is empty")
               sys.exit(1)
 
-          # --- ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ TOML ---
-          def escape_toml(text):
-              # Заменяем один слэш на два, и кавычку на \"
-              return text.replace('\\', '\\\\').replace('"', '\\"')
+          # 1. Подготовка версий названия с разным экранированием
 
-          safe_compname = escape_toml(compname)
-          # --------------------------------------
+          # Для Rust, TOML, Dart, Python: кавычка " должна стать \"
+          # Пример: UE «"BEL"» -> UE «\"BEL\"»
+          compname_code = compname.replace('"', '\\"')
 
-          print(f"Patching files with company name: {compname}")
+          # Для Windows RC файлов: кавычка " должна стать "" (двойная кавычка)
+          # Пример: UE «"BEL"» -> UE «""BEL""»
+          compname_rc = compname.replace('"', '""')
 
-          # 1. Обычные файлы (Dart, Python, RTF) - тут экранирование обычно не нужно или оно другое
-          # Но для Cargo.toml нужно использовать safe_compname!
+          # Для RTF (Лицензия): оставляем как есть (обычно RTF переваривает кавычки)
+          compname_raw = compname
 
-          replacements_plain = [
-              ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd', compname),
-              ('./res/msi/preprocess.py', 'PURSLANE', compname),
-              ('./res/msi/preprocess.py', 'Purslane Ltd', compname),
-              ('./res/msi/Package/License.rtf', 'Purslane Ltd', compname),
-              # Runner.rc обрабатываем отдельно ниже
-          ]
+          print(f"Raw name: {compname}")
+          print(f"Code escaped: {compname_code}")
+          print(f"RC escaped: {compname_rc}")
 
-          # 2. TOML файлы (Cargo.toml) - ИСПОЛЬЗУЕМ safe_compname
-          replacements_toml = [
-              ('./Cargo.toml', 'Purslane Ltd', safe_compname),
-              ('./libs/portable/Cargo.toml', 'Purslane Ltd', safe_compname),
-          ]
-
+          # Функция патчинга
           def patch_file(path, search, replace, encoding='utf-8-sig'):
               if not os.path.exists(path):
                   print(f"Warning: File not found: {path}")
@@ -347,47 +338,70 @@ jobs:
               try:
                   with open(path, 'r', encoding=encoding) as f:
                       content = f.read()
+
                   if search in content:
                       new_content = content.replace(search, replace)
                       with open(path, 'w', encoding='utf-8') as f:
                           f.write(new_content)
                       print(f"Updated: {path}")
+                  else:
+                      # Для отладки можно раскомментировать
+                      # print(f"Skipped: {path} (text not found)")
+                      pass
               except Exception as e:
                   print(f"Error patching {path}: {e}")
+                  sys.exit(1)
 
-          # Запускаем замены
-          for path, s, r in replacements_plain:
-              patch_file(path, s, r)
+          # --- ГРУППА 1: Файлы кода и конфиги (используем compname_code) ---
+          # Здесь важно, чтобы кавычки были экранированы (\")
+          files_code = [
+              ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd'),
+              ('./res/msi/preprocess.py', 'PURSLANE'),
+              ('./res/msi/preprocess.py', 'Purslane Ltd'),
+              ('./Cargo.toml', 'Purslane Ltd'),
+              ('./libs/portable/Cargo.toml', 'Purslane Ltd'),
+          ]
 
-          for path, s, r in replacements_toml:
-              patch_file(path, s, r)
+          for path, search in files_code:
+              patch_file(path, search, compname_code)
 
-          # 3. Runner.rc (Copyright)
+          # --- ГРУППА 2: Языковые файлы Rust (используем compname_code) ---
+          import glob
+          lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
+          for path in lang_files:
+              # В языковых файлах меняем "RustDesk" на экранированное имя
+              patch_file(path, 'RustDesk', compname_code)
+
+          # --- ГРУППА 3: Лицензия (используем compname_raw) ---
+          patch_file('./res/msi/Package/License.rtf', 'Purslane Ltd', compname_raw)
+
+          # --- ГРУППА 4: Runner.rc (используем compname_rc и Regex) ---
           runner_rc = './flutter/windows/runner/Runner.rc'
           if os.path.exists(runner_rc):
               with open(runner_rc, 'r', encoding='utf-8-sig') as f:
                   content = f.read()
 
-              # Для RC файлов кавычки экранируются удвоением "", но обычно внутри строки Copyright кавычек нет.
-              # Если в названии есть кавычки, для RC файла их лучше заменить на что-то другое или экранировать как ""
-              rc_compname = compname.replace('"', '""')
+              # Формируем строку Copyright.
+              # В RC файле внутри кавычек нужно использовать двойные кавычки для экранирования.
+              new_copyright = f"Copyright \u00A9 2025 {compname_rc}. All rights reserved."
 
-              new_copyright = f"Copyright \u00A9 2025 {rc_compname}. All rights reserved."
-
-              # Regex поиск
+              # Regex для поиска старого Copyright
               pattern = r'Copyright\s+(?:\u00A9|\(c\))\s+2025\s+Purslane\s+Ltd\.?\s+All\s+rights\s+reserved\.?'
+
               new_content, count = re.subn(pattern, new_copyright, content, flags=re.IGNORECASE)
+
+              # Дополнительно меняем просто имя компании (fallback), если оно есть в других полях (например CompanyName)
+              # Тут тоже используем compname_rc
+              if 'Purslane Ltd' in new_content:
+                   new_content = new_content.replace('Purslane Ltd', compname_rc)
+                   count += 1
 
               if count > 0:
                   with open(runner_rc, 'w', encoding='utf-8') as f:
                       f.write(new_content)
-                  print(f"Updated Copyright in {runner_rc}")
-              elif 'Purslane Ltd' in content:
-                  # Fallback
-                  content = content.replace('Purslane Ltd', rc_compname)
-                  with open(runner_rc, 'w', encoding='utf-8') as f:
-                      f.write(content)
-                  print(f"Updated Company Name in {runner_rc} (fallback)")
+                  print(f"Updated: {runner_rc}")
+              else:
+                  print(f"Warning: Nothing changed in {runner_rc}")
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
