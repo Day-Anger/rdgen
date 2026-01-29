@@ -77,6 +77,10 @@ jobs:
             }
           # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
+      - name: Check Environment
+        run: |
+          python -c "import sys; import os; print(f'STDOUT encoding: {sys.stdout.encoding}'); print(f'PYTHONUTF8 env: {os.environ.get(\"PYTHONUTF8\")}')"
+
       - name: install python deps
         run: |
           pip install requests pyzipper
@@ -84,8 +88,8 @@ jobs:
       - name: Download, Decrypt, and Mask
         shell: python
         env:
-          PYTHONUTF8: 1
-          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
           import sys
           import requests
@@ -94,6 +98,10 @@ jobs:
           import os
           import json
           import time
+
+          # Полная замена стандартного вывода на UTF-8 с игнорированием ошибок кодировки
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
           for attempt in range(5):
             try:
@@ -120,10 +128,7 @@ jobs:
 
           with open(os.environ['GITHUB_ENV'], 'a', encoding='utf-8') as env_file:
             for key, value in secrets.items():
-              print(f"Key: {key}, Value type: {type(value)}")
-              print(f"Value repr: {repr(value)}")
-              # Записываем напрямую в stdout как байты UTF-8
-              sys.stdout.buffer.write(f"::add-mask::{value}\n".encode('utf-8'))
+              print(f"::add-mask::{value}")
               env_file.write(f"{key}={value}\n")
 
           print("Secrets loaded into environment.")
