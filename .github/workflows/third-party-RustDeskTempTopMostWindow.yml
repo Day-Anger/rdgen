@@ -50,6 +50,9 @@ jobs:
           pip install requests pyzipper
       - name: Download, Decrypt, and Mask
         shell: python
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
         run: |
           import requests
           import pyzipper
@@ -57,6 +60,10 @@ jobs:
           import os
           import json
           import time
+
+          # Полная замена стандартного вывода на UTF-8 с игнорированием ошибок кодировки
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
           for attempt in range(5):
             try:
@@ -71,7 +78,7 @@ jobs:
               else:
                 print("Max retries reached. Failing.")
                 raise e
-          
+
           try:
             with pyzipper.AESZipFile(io.BytesIO(r.content)) as zf:
               zf.setpassword('${{ secrets.ZIP_PASSWORD }}'.encode())
@@ -85,7 +92,7 @@ jobs:
             for key, value in secrets.items():
               print(f"::add-mask::{value}")
               env_file.write(f"{key}={value}\n")
-          
+
           print("Secrets loaded into environment.")
 
       - name: Finalize and Cleanup zip/json
