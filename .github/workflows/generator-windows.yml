@@ -299,65 +299,95 @@ jobs:
 
       - name: change company name
         if: env.compname != 'Purslane Ltd'
-        # Убрали continue-on-error, чтобы видеть ошибки сразу
         shell: python
         env:
           PYTHONIOENCODING: utf-8
-          # Передаем переменную через окружение, чтобы избежать инъекций
           COMPNAME: ${{ env.compname }}
         run: |
           import os
           import sys
+          import re
 
-          # Получаем значение безопасно
           compname = os.environ.get('COMPNAME')
           if not compname:
               print("Error: COMPNAME is empty")
               sys.exit(1)
 
+          # --- ФУНКЦИЯ ЭКРАНИРОВАНИЯ ДЛЯ TOML ---
+          def escape_toml(text):
+              # Заменяем один слэш на два, и кавычку на \"
+              return text.replace('\\', '\\\\').replace('"', '\\"')
+
+          safe_compname = escape_toml(compname)
+          # --------------------------------------
+
           print(f"Patching files with company name: {compname}")
 
-          # Список замен: (файл, что_меняем, на_что_меняем)
-          # Обратите внимание: Python делает точную замену текста (literal),
-          # поэтому спецсимволы (., |, &) не сломают скрипт.
-          replacements = [
+          # 1. Обычные файлы (Dart, Python, RTF) - тут экранирование обычно не нужно или оно другое
+          # Но для Cargo.toml нужно использовать safe_compname!
+
+          replacements_plain = [
               ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd', compname),
               ('./res/msi/preprocess.py', 'PURSLANE', compname),
               ('./res/msi/preprocess.py', 'Purslane Ltd', compname),
-              ('./flutter/windows/runner/Runner.rc', 'Purslane Ltd', compname),
-              ('./Cargo.toml', 'Purslane Ltd', compname),
-              ('./libs/portable/Cargo.toml', 'Purslane Ltd', compname),
               ('./res/msi/Package/License.rtf', 'Purslane Ltd', compname),
+              # Runner.rc обрабатываем отдельно ниже
           ]
 
-          # Отдельная сложная замена для Copyright в Runner.rc
-          # Здесь пишем точный текст, который сейчас в файле
-          old_copyright = 'Copyright © 2025 Purslane Ltd. All rights reserved.'
-          new_copyright = f'Copyright © 2025 {compname}. All rights reserved.'
-          replacements.append(('./flutter/windows/runner/Runner.rc', old_copyright, new_copyright))
+          # 2. TOML файлы (Cargo.toml) - ИСПОЛЬЗУЕМ safe_compname
+          replacements_toml = [
+              ('./Cargo.toml', 'Purslane Ltd', safe_compname),
+              ('./libs/portable/Cargo.toml', 'Purslane Ltd', safe_compname),
+          ]
 
-          for file_path, search_text, replace_text in replacements:
+          def patch_file(path, search, replace, encoding='utf-8-sig'):
+              if not os.path.exists(path):
+                  print(f"Warning: File not found: {path}")
+                  return
               try:
-                  if not os.path.exists(file_path):
-                      print(f"Warning: File not found: {file_path}")
-                      continue
-
-                  # Читаем файл в UTF-8
-                  with open(file_path, 'r', encoding='utf-8') as f:
+                  with open(path, 'r', encoding=encoding) as f:
                       content = f.read()
-
-                  # Проверяем, есть ли что менять
-                  if search_text in content:
-                      new_content = content.replace(search_text, replace_text)
-                      with open(file_path, 'w', encoding='utf-8') as f:
+                  if search in content:
+                      new_content = content.replace(search, replace)
+                      with open(path, 'w', encoding='utf-8') as f:
                           f.write(new_content)
-                      print(f"Updated: {file_path}")
-                  else:
-                      print(f"Skipped (text not found): {file_path} -> searching for '{search_text}'")
-
+                      print(f"Updated: {path}")
               except Exception as e:
-                  print(f"Error processing {file_path}: {e}")
-                  sys.exit(1)
+                  print(f"Error patching {path}: {e}")
+
+          # Запускаем замены
+          for path, s, r in replacements_plain:
+              patch_file(path, s, r)
+
+          for path, s, r in replacements_toml:
+              patch_file(path, s, r)
+
+          # 3. Runner.rc (Copyright)
+          runner_rc = './flutter/windows/runner/Runner.rc'
+          if os.path.exists(runner_rc):
+              with open(runner_rc, 'r', encoding='utf-8-sig') as f:
+                  content = f.read()
+
+              # Для RC файлов кавычки экранируются удвоением "", но обычно внутри строки Copyright кавычек нет.
+              # Если в названии есть кавычки, для RC файла их лучше заменить на что-то другое или экранировать как ""
+              rc_compname = compname.replace('"', '""')
+
+              new_copyright = f"Copyright \u00A9 2025 {rc_compname}. All rights reserved."
+
+              # Regex поиск
+              pattern = r'Copyright\s+(?:\u00A9|\(c\))\s+2025\s+Purslane\s+Ltd\.?\s+All\s+rights\s+reserved\.?'
+              new_content, count = re.subn(pattern, new_copyright, content, flags=re.IGNORECASE)
+
+              if count > 0:
+                  with open(runner_rc, 'w', encoding='utf-8') as f:
+                      f.write(new_content)
+                  print(f"Updated Copyright in {runner_rc}")
+              elif 'Purslane Ltd' in content:
+                  # Fallback
+                  content = content.replace('Purslane Ltd', rc_compname)
+                  with open(runner_rc, 'w', encoding='utf-8') as f:
+                      f.write(content)
+                  print(f"Updated Company Name in {runner_rc} (fallback)")
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
@@ -622,43 +652,65 @@ jobs:
           data: '{"uuid": "${{ env.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
 
       - name: Build rustdesk
+        shell: powershell
         run: |
-          # Windows: build RustDesk
-          python3 .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
-          mv ./flutter/build/windows/x64/runner/Release ./rustdesk
+          # 1. Запуск сборки
+          # На Windows обычно просто 'python', а не 'python3'
+          python .\build.py --portable --hwcodec --flutter --vram --skip-portable-pack
 
-          # Download usbmmidd_v2.zip and extract it to ./rustdesk
-          Invoke-WebRequest -Uri https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip -OutFile usbmmidd_v2.zip
-          Expand-Archive usbmmidd_v2.zip -DestinationPath . -Force
-          Remove-Item -Path usbmmidd_v2\Win32 -Recurse
-          Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
-          mv -Force .\usbmmidd_v2 ./rustdesk
+          # Проверяем, создалась ли папка, прежде чем перемещать
+          $BuildPath = ".\flutter\build\windows\x64\runner\Release"
+          if (Test-Path -Path $BuildPath) {
+              Move-Item -Path $BuildPath -Destination ".\rustdesk" -Force
+          } else {
+              Write-Error "Build failed! Output directory not found: $BuildPath"
+              exit 1
+          }
 
-          # Download printer driver files and extract them to ./rustdesk
+          # 2. Скачивание usbmmidd_v2
+          $Url = "https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip"
+          Invoke-WebRequest -Uri $Url -OutFile "usbmmidd_v2.zip"
+          Expand-Archive "usbmmidd_v2.zip" -DestinationPath . -Force
+
+          # Удаляем лишнее (с проверкой существования)
+          if (Test-Path "usbmmidd_v2\Win32") { Remove-Item -Path "usbmmidd_v2\Win32" -Recurse -Force }
+          $FilesToRemove = @("usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat")
+          foreach ($File in $FilesToRemove) {
+              if (Test-Path $File) { Remove-Item -Path $File -Force }
+          }
+
+          Move-Item -Path ".\usbmmidd_v2" -Destination ".\rustdesk" -Force
+
+          # 3. Драйвер принтера
           try {
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/rustdesk_printer_driver_v4-1.4.zip -OutFile rustdesk_printer_driver_v4-1.4.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/printer_driver_adapter.zip -OutFile printer_driver_adapter.zip
-            Invoke-WebRequest -Uri https://github.com/rustdesk/hbb_common/releases/download/driver/sha256sums -OutFile sha256sums
+            $BaseUrl = "https://github.com/rustdesk/hbb_common/releases/download/driver"
+            Invoke-WebRequest -Uri "$BaseUrl/rustdesk_printer_driver_v4-1.4.zip" -OutFile "rustdesk_printer_driver_v4-1.4.zip"
+            Invoke-WebRequest -Uri "$BaseUrl/printer_driver_adapter.zip" -OutFile "printer_driver_adapter.zip"
+            Invoke-WebRequest -Uri "$BaseUrl/sha256sums" -OutFile "sha256sums"
 
-            # Check and move the files
+            # Проверка хешей
             $checksum_driver = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*rustdesk_printer_driver_v4-1.4\.zip$').Matches.Groups[1].Value
-            $downloadsum_driver = Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256
+            $downloadsum_driver = (Get-FileHash -Path rustdesk_printer_driver_v4-1.4.zip -Algorithm SHA256).Hash
+
             $checksum_adapter = (Select-String -Path .\sha256sums -Pattern '^([a-fA-F0-9]{64}) \*printer_driver_adapter\.zip$').Matches.Groups[1].Value
-            $downloadsum_adapter = Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256
-            if ($checksum_driver -eq $downloadsum_driver.Hash -and $checksum_adapter -eq $downloadsum_adapter.Hash) {
-                Write-Output "rustdesk_printer_driver_v4-1.4, checksums match, extract the file."
-                Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath .
-                mkdir ./rustdesk/drivers
-                mv -Force .\rustdesk_printer_driver_v4-1.4 ./rustdesk/drivers/RustDeskPrinterDriver
-                Expand-Archive printer_driver_adapter.zip -DestinationPath .
-                mv -Force .\printer_driver_adapter.dll ./rustdesk
-            } elseif ($checksum_driver -ne $downloadsum_driver.Hash) {
-                Write-Output "rustdesk_printer_driver_v4-1.4, checksums do not match, ignore the file."
+            $downloadsum_adapter = (Get-FileHash -Path printer_driver_adapter.zip -Algorithm SHA256).Hash
+
+            if ($checksum_driver -eq $downloadsum_driver -and $checksum_adapter -eq $downloadsum_adapter) {
+                Write-Output "Checksums match. Extracting..."
+
+                Expand-Archive rustdesk_printer_driver_v4-1.4.zip -DestinationPath . -Force
+                $DriverDir = ".\rustdesk\drivers\RustDeskPrinterDriver"
+                New-Item -ItemType Directory -Force -Path $DriverDir | Out-Null
+                Move-Item -Path ".\rustdesk_printer_driver_v4-1.4" -Destination $DriverDir -Force
+
+                Expand-Archive printer_driver_adapter.zip -DestinationPath . -Force
+                Move-Item -Path ".\printer_driver_adapter.dll" -Destination ".\rustdesk" -Force
             } else {
-                Write-Output "printer_driver_adapter.dll, checksums do not match, ignore the file."
+                Write-Warning "Checksum mismatch! Skipping printer drivers."
             }
           } catch {
-              Write-Host "Ingore the printer driver error."
+              Write-Warning "Printer driver download/install failed: $_"
+              # Не прерываем сборку из-за драйвера принтера
           }
 
       - name: icon stuff
