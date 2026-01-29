@@ -54,6 +54,7 @@ jobs:
           PYTHONUTF8: "1"
           PYTHONIOENCODING: "utf-8"
         run: |
+          import sys
           import requests
           import pyzipper
           import io
