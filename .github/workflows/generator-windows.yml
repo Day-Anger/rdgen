@@ -193,6 +193,7 @@ jobs:
         # Убрали continue-on-error, ошибки нужно видеть
         shell: python
         env:
+          PYTHONIOENCODING: utf-8
           # Передаем переменные безопасно через ENV
           APPNAME: ${{ env.appname }}
           FILENAME: ${{ env.filename }}
@@ -301,6 +302,7 @@ jobs:
         # Убрали continue-on-error, чтобы видеть ошибки сразу
         shell: python
         env:
+          PYTHONIOENCODING: utf-8
           # Передаем переменную через окружение, чтобы избежать инъекций
           COMPNAME: ${{ env.compname }}
         run: |
