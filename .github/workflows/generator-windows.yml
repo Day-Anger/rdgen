@@ -351,6 +351,7 @@ jobs:
           COMPNAME: ${{ env.compname }}
         run: |
           import os
+          import io
           import sys
           import re
           import glob
