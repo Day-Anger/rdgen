@@ -208,81 +208,86 @@ jobs:
 
       - name: change appname to custom
         if: env.appname != 'rustdesk'
-        shell: python
+        shell: cmd
         env:
-          # ВАЖНО: Включаем UTF-8 и для этого шага тоже
           PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
           APPNAME: ${{ env.appname }}
           FILENAME: ${{ env.filename }}
           COMPNAME: ${{ env.compname }}
         run: |
-          import os
-          import glob
-          import sys
+          chcp 65001
+          python -c "import os, sys, glob;
+
+          # Настройка вывода в консоль (чтобы не было ромбиков в логах)
+          sys.stdout.reconfigure(encoding='utf-8')
 
           appname = os.environ.get('APPNAME', '')
           filename = os.environ.get('FILENAME', '')
           compname = os.environ.get('COMPNAME', '')
 
           if not appname:
-              print("Error: APPNAME is not set")
+              print('Error: APPNAME is not set')
               sys.exit(1)
 
-          print(f"Original AppName: {appname}")
+          print(f'Patching AppName: {appname}, Filename: {filename}')
 
           # --- ПОДГОТОВКА ЭКРАНИРОВАНИЯ ---
-          # 1. Для кода (Rust, TOML): кавычка " -> \"
-          appname_code = appname.replace('"', '\\"')
+          # 1. Для кода (Rust, TOML): кавычка \" -> \\\"
+          appname_code = appname.replace('\"', '\\\"')
+          compname_code = compname.replace('\"', '\\\"') if compname else ''
 
-          # 2. Для RC файлов (Windows): кавычка " -> ""
-          appname_rc = appname.replace('"', '""')
+          # 2. Для RC файлов (Windows): кавычка \" -> \"\"
+          appname_rc = appname.replace('\"', '\"\"')
+          filename_rc = filename.replace('\"', '\"\"')
 
-          # 3. Имя файла (exe) не должно содержать кавычек вообще,
-          # но если они там есть, для RC их надо экранировать
-          filename_rc = filename.replace('"', '""')
-
-          print(f"Code escaped: {appname_code}")
-
-          def patch_file(path, replacements, encoding='utf-8-sig'):
+          # --- ФУНКЦИЯ ПАТЧИНГА ---
+          def patch_file(path, replacements):
               if not os.path.exists(path):
-                  print(f"Warning: File not found: {path}")
+                  print(f'Warning: File not found: {path}')
                   return
               try:
-                  with open(path, 'r', encoding=encoding) as f:
+                  # Читаем всегда как utf-8-sig (совместимо с BOM от предыдущего шага)
+                  with open(path, 'r', encoding='utf-8-sig') as f:
                       content = f.read()
+
+                  # Если это Runner.rc, проверяем наличие магии для UTF-8
+                  if path.endswith('Runner.rc') and '#pragma code_page' not in content:
+                      content = '#pragma code_page(65001)\n' + content
+                      print(f'Added #pragma code_page(65001) to {path}')
 
                   original_content = content
                   for search, replace in replacements:
                       content = content.replace(search, replace)
 
                   if content != original_content:
-                      with open(path, 'w', encoding='utf-8') as f:
+                      # Пишем обратно с BOM (utf-8-sig)
+                      with open(path, 'w', encoding='utf-8-sig') as f:
                           f.write(content)
-                      print(f"Updated: {path}")
+                      print(f'Updated: {path}')
               except Exception as e:
-                  print(f"Error processing {path}: {e}")
+                  print(f'Error processing {path}: {e}')
                   sys.exit(1)
 
           # 1. Cargo.toml (Root и Portable)
           # Используем appname_code (с экранированием \")
           cargo_replacements = [
-              ('description = "RustDesk Remote Desktop"', f'description = "{appname_code}"'),
-              ('ProductName = "RustDesk"', f'ProductName = "{appname_code}"'),
-              ('FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{appname_code}"'),
-              ('OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{appname_code}.exe"'),
+              ('description = \"RustDesk Remote Desktop\"', f'description = \"{appname_code}\"'),
+              ('ProductName = \"RustDesk\"', f'ProductName = \"{appname_code}\"'),
+              ('FileDescription = \"RustDesk Remote Desktop\"', f'FileDescription = \"{appname_code}\"'),
+              ('OriginalFilename = \"rustdesk.exe\"', f'OriginalFilename = \"{appname_code}.exe\"'),
           ]
 
           patch_file('./Cargo.toml', cargo_replacements)
           patch_file('./libs/portable/Cargo.toml', cargo_replacements)
 
           # 2. Runner.rc
-          # Используем appname_rc (с экранированием "")
+          # Используем appname_rc (с экранированием \"\")
           runner_replacements = [
-              ('"RustDesk Remote Desktop"', f'"{appname_rc}"'),
-              ('VALUE "InternalName", "rustdesk"', f'VALUE "InternalName", "{appname_rc}"'),
-              ('"rustdesk.exe"', f'"{filename_rc}"'),
-              ('"RustDesk"', f'"{appname_rc}"'),
+              ('\"RustDesk Remote Desktop\"', f'\"{appname_rc}\"'),
+              ('VALUE \"InternalName\", \"rustdesk\"', f'VALUE \"InternalName\", \"{appname_rc}\"'),
+              ('\"rustdesk.exe\"', f'\"{filename_rc}\"'),
+              ('\"RustDesk\"', f'\"{appname_rc}\"'),
           ]
           patch_file('./flutter/windows/runner/Runner.rc', runner_replacements)
 
@@ -290,20 +295,13 @@ jobs:
           lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
           lang_files.append('./res/msi/Package/License.rtf')
 
-          # Подготовка имени компании для замены (если оно есть)
-          # Для кода тоже нужно экранирование
-          compname_code = compname.replace('"', '\\"') if compname else ''
-
           for file_path in lang_files:
               replacements = []
 
-              # Если это RTF файл, там экранирование \" не нужно, используем оригинал или спец. экранирование
-              # Но для простоты, если в названии нет кавычек, разницы нет.
-              # Если файл .rs -> используем _code версии.
-
-              is_rust_file = file_path.endswith('.rs')
-              target_compname = compname_code if is_rust_file else compname
-              target_appname = appname_code if is_rust_file else appname
+              # Определяем, какую версию имени использовать (для кода или сырую)
+              is_rust = file_path.endswith('.rs')
+              target_compname = compname_code if is_rust else compname
+              target_appname = appname_code if is_rust else appname
 
               # Логика: Сначала меняем RustDesk на Компанию (если задана), остатки на Имя Приложения
               if target_compname:
@@ -312,6 +310,7 @@ jobs:
               replacements.append(('RustDesk', target_appname))
 
               patch_file(file_path, replacements)
+          "
 
       - name: fix registry if appname has a space
         if: contains(env.appname, ' ')
@@ -335,68 +334,60 @@ jobs:
 
       - name: change company name
         if: env.compname != 'Purslane Ltd'
-        shell: python
+        shell: cmd
         env:
-          # ЭТИ ДВЕ СТРОКИ ОБЯЗАТЕЛЬНЫ ДЛЯ WINDOWS + СПЕЦСИМВОЛОВ
           PYTHONUTF8: 1
           PYTHONIOENCODING: utf-8
           COMPNAME: ${{ env.compname }}
         run: |
-          import os
-          import sys
-          import re
+          chcp 65001
+          python -c "import os, sys, re, glob;
 
-          # Теперь Python прочитает строку корректно (UE «"BEL"»)
+          # Настройка консоли для логов
+          sys.stdout.reconfigure(encoding='utf-8')
+
           compname = os.environ.get('COMPNAME')
           if not compname:
-              print("Error: COMPNAME is empty")
+              print('Error: COMPNAME is empty')
               sys.exit(1)
 
-          print(f"Original name: {compname}")
+          print(f'Patching with company name: {compname}')
 
-          # --- ПОДГОТОВКА ВАРИАНТОВ НАЗВАНИЯ ---
-
-          # 1. Для кода (Rust, Dart, Python, TOML)
-          # Нам нужно превратить кавычку " в \"
-          # Пример: UE «"BEL"»  ->  UE «\"BEL\"»
-          # В Rust это будет выглядеть как строка: "UE «\"BEL\"»"
-          compname_code = compname.replace('"', '\\"')
-
-          # 2. Для Windows RC файлов
-          # Там кавычка экранируется удвоением: " -> ""
-          # Пример: UE «"BEL"»  ->  UE «""BEL""»
-          compname_rc = compname.replace('"', '""')
-
-          # 3. Для RTF (Лицензия)
-          # Обычно RTF переваривает кавычки, но лучше экранировать обратный слэш, если он есть
+          # --- ПОДГОТОВКА ЭКРАНИРОВАНИЯ ---
+          # 1. Для кода (Rust/Dart): кавычка \" -> \\\"
+          compname_code = compname.replace('\"', '\\\"')
+          # 2. Для RC (Windows): кавычка \" -> \"\"
+          compname_rc = compname.replace('\"', '\"\"')
+          # 3. Для RTF: экранируем слэши
           compname_rtf = compname.replace('\\', '\\\\')
 
-          print(f"Code escaped: {compname_code}")
-          print(f"RC escaped:   {compname_rc}")
-
-          # Функция для безопасной замены
-          def patch_file(path, search, replace, encoding='utf-8-sig'):
+          # --- ФУНКЦИЯ ПАТЧИНГА ---
+          def patch_file(path, search, replace):
               if not os.path.exists(path):
-                  print(f"Warning: File not found: {path}")
+                  print(f'Warning: File not found: {path}')
                   return
               try:
-                  with open(path, 'r', encoding=encoding) as f:
+                  # Читаем с utf-8-sig (чтобы не было проблем с BOM)
+                  with open(path, 'r', encoding='utf-8-sig') as f:
                       content = f.read()
+
+                  # --- МАГИЯ ДЛЯ RC.EXE ---
+                  # Если это .rc файл, добавляем директиву кодировки UTF-8
+                  if path.endswith('.rc') and '#pragma code_page(65001)' not in content:
+                      content = '#pragma code_page(65001)\n' + content
+                      print(f'Added UTF-8 pragma to {path}')
 
                   if search in content:
                       new_content = content.replace(search, replace)
-                      with open(path, 'w', encoding='utf-8') as f:
+                      # СОХРАНЯЕМ КАК UTF-8 С BOM (utf-8-sig)
+                      with open(path, 'w', encoding='utf-8-sig') as f:
                           f.write(new_content)
-                      print(f"Updated: {path}")
-                  else:
-                      # print(f"Skipped: {path}")
-                      pass
+                      print(f'Updated: {path}')
               except Exception as e:
-                  print(f"Error patching {path}: {e}")
+                  print(f'Error patching {path}: {e}')
                   sys.exit(1)
 
-          # --- ГРУППА 1: Обычные файлы (используем compname_code) ---
-          # Здесь мы меняем старое название на новое с экранированными кавычками
+          # 1. Обычные файлы
           files_code = [
               ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd'),
               ('./res/msi/preprocess.py', 'PURSLANE'),
@@ -404,47 +395,44 @@ jobs:
               ('./Cargo.toml', 'Purslane Ltd'),
               ('./libs/portable/Cargo.toml', 'Purslane Ltd'),
           ]
-
           for path, search in files_code:
               patch_file(path, search, compname_code)
 
-          # --- ГРУППА 2: Языковые файлы Rust (используем compname_code) ---
-          import glob
-          lang_files = glob.glob('./src/lang/**/*.rs', recursive=True)
-          for path in lang_files:
-              # В языковых файлах ищем "RustDesk" и меняем на экранированное имя
-              # Было: ("key", "RustDesk")
-              # Станет: ("key", "UE «\"BEL\"»")
+          # 2. Языковые файлы Rust
+          for path in glob.glob('./src/lang/**/*.rs', recursive=True):
               patch_file(path, 'RustDesk', compname_code)
 
-          # --- ГРУППА 3: Лицензия (используем compname_rtf) ---
+          # 3. Лицензия
           patch_file('./res/msi/Package/License.rtf', 'Purslane Ltd', compname_rtf)
 
-          # --- ГРУППА 4: Runner.rc (используем compname_rc) ---
+          # 4. Runner.rc (Copyright)
           runner_rc = './flutter/windows/runner/Runner.rc'
           if os.path.exists(runner_rc):
               with open(runner_rc, 'r', encoding='utf-8-sig') as f:
                   content = f.read()
 
-              # Формируем строку Copyright с правильным символом и экранированием для RC
-              new_copyright = f"Copyright \u00A9 2025 {compname_rc}. All rights reserved."
+              # Добавляем pragma, если нет
+              if '#pragma code_page(65001)' not in content:
+                  content = '#pragma code_page(65001)\n' + content
+                  print('Added UTF-8 pragma to Runner.rc')
 
-              # Regex для поиска старого Copyright
+              # Формируем Copyright
+              new_copyright = f'Copyright \u00A9 2025 {compname_rc}. All rights reserved.'
+
+              # Regex замена
               pattern = r'Copyright\s+(?:\u00A9|\(c\))\s+2025\s+Purslane\s+Ltd\.?\s+All\s+rights\s+reserved\.?'
-
               new_content, count = re.subn(pattern, new_copyright, content, flags=re.IGNORECASE)
 
-              # Fallback: если Regex не нашел, меняем просто имя компании
+              # Fallback
               if 'Purslane Ltd' in new_content:
                    new_content = new_content.replace('Purslane Ltd', compname_rc)
                    count += 1
 
-              if count > 0:
-                  with open(runner_rc, 'w', encoding='utf-8') as f:
+              if count > 0 or '#pragma' in content:
+                  with open(runner_rc, 'w', encoding='utf-8-sig') as f:
                       f.write(new_content)
-                  print(f"Updated: {runner_rc}")
-              else:
-                  print(f"Warning: Nothing changed in {runner_rc}")
+                  print(f'Updated: {runner_rc}')
+          "
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
