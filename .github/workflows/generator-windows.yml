@@ -355,7 +355,6 @@ jobs:
           import sys
           import re
           import glob
-          import html
 
           # ЖЕЛЕЗОБЕТОННЫЙ способ форсировать UTF-8 на Windows-раннере
           sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -376,7 +375,7 @@ jobs:
           # 3. Для RTF: экранируем слэши
           compname_rtf = compname.replace('\\', '\\\\')
           # 4. Для XML/WiX атрибутов (чтобы кавычки внутри не ломали структуру)
-          compname_xml = html.escape(compname, quote=True)
+          compname_xml = compname.replace('"', '""')
 
           # --- ФУНКЦИЯ ПАТЧИНГА ---
           def patch_file(path, search, replace):
@@ -731,7 +730,7 @@ jobs:
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgDirectory: ${{ github.workspace }}/vcpkg # Используем локальную папку вместо системной C:\vcpkg
+          vcpkgDirectory: ${{ runner.temp }}/vcpkg # Используем локальную папку вместо системной C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
@@ -739,7 +738,7 @@ jobs:
         shell: bash
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
-          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+          VCPKG_ROOT: ${{ runner.temp }}/vcpkg
         run: |
           # Создаем папку для установки, чтобы vcpkg не лез в системные папки
           mkdir -p $VCPKG_ROOT/installed
@@ -751,11 +750,21 @@ jobs:
       - name: Set VCPKG_ROOT and Export PATH
         shell: bash
         run: |
-          VCPKG_INSTALLED="${{ github.workspace }}/vcpkg/installed/${{ matrix.job.vcpkg-triplet }}"
-          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
+          # Теперь используем путь из runner.temp
+          VCPKG_BASE="${{ runner.temp }}/vcpkg"
+          VCPKG_INSTALLED="$VCPKG_BASE/installed/${{ matrix.job.vcpkg-triplet }}"
+
+          echo "VCPKG_ROOT=$VCPKG_BASE" >> $GITHUB_ENV
           echo "VCPKG_INSTALLED=$VCPKG_INSTALLED" >> $GITHUB_ENV
-          # Добавляем путь к бинарникам (DLL) в PATH, чтобы тесты или сборка их видели
-          echo "$VCPKG_INSTALLED/bin" >> $GITHUB_PATH
+
+          # Добавляем путь к бинарникам (DLL) в PATH
+          if [ -d "$VCPKG_INSTALLED/bin" ]; then
+            echo "$VCPKG_INSTALLED/bin" >> $GITHUB_PATH
+          fi
+
+          echo "VCPKG_ROOT is set to: $VCPKG_BASE"
+          echo "VCPKG_INSTALLED is set to: $VCPKG_INSTALLED"
+
 
       - name: magick stuff
         if: ${{ env.iconlink_url != 'false' }}
