@@ -471,6 +471,43 @@ jobs:
                       f.write(content)
                   print(f'Successfully injected UTF-8 fix into {preprocess_path}')
 
+          # --- ФИНАЛЬНЫЙ ТЮНИНГ WIX v4 (ПОДДЕРЖКА UNICODE) ---
+          wxs_path = './res/msi/Package/Package.wxs'
+          if os.path.exists(wxs_path):
+              with open(wxs_path, 'r', encoding='utf-8-sig') as f:
+                  content = f.read()
+
+              # 1. Форсируем кодовую страницу 65001 (UTF-8)
+              content = content.replace('Codepage="!(loc.SummaryCodepage)"', 'Codepage="65001"')
+
+              # 2. Устанавливаем нейтральный язык (Language="0")
+              # Это позволит избежать конфликтов с локализованными строками
+              content = content.replace('Language="!(loc.ProductLanguage)"', 'Language="0"')
+
+              with open(wxs_path, 'w', encoding='utf-8-sig') as f:
+                  f.write(content)
+              print(f'Fixed Package.wxs: Set Language="0" and Codepage="65001"')
+
+          # Проходим по всем файлам локализации в ./res/msi/Package/Language
+          wxl_files = glob.glob('./res/msi/Package/Language/*.wxl')
+          for wxl_path in wxl_files:
+              try:
+                  with open(wxl_path, 'r', encoding='utf-8-sig') as f:
+                      wxl_content = f.read()
+
+                  # Принудительно ставим UTF-8 для каждой локализации
+                  if 'Codepage=' in wxl_content:
+                      wxl_content = re.sub(r'Codepage="\d+"', 'Codepage="65001"', wxl_content)
+                  else:
+                      wxl_content = wxl_content.replace('<WixLocalization', '<WixLocalization Codepage="65001"')
+
+                  with open(wxl_path, 'w', encoding='utf-8-sig') as f:
+                      f.write(wxl_content)
+                  print(f'Patched localization file: {wxl_path}')
+              except Exception as e:
+                  print(f'Warning: Could not patch {wxl_path}: {e}')
+
+
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
         continue-on-error: true
