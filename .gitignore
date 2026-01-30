@@ -6,3 +6,4 @@ gunicorn.conf
 /png
 /temp_zips
 /exe
+workspace.code-workspace

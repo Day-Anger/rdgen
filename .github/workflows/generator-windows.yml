@@ -355,6 +355,7 @@ jobs:
           import sys
           import re
           import glob
+          import html
 
           # ЖЕЛЕЗОБЕТОННЫЙ способ форсировать UTF-8 на Windows-раннере
           sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -374,6 +375,8 @@ jobs:
           compname_rc = compname.replace('\"', '\"\"')
           # 3. Для RTF: экранируем слэши
           compname_rtf = compname.replace('\\', '\\\\')
+          # 4. Для XML/WiX атрибутов (чтобы кавычки внутри не ломали структуру)
+          compname_xml = html.escape(compname, quote=True)
 
           # --- ФУНКЦИЯ ПАТЧИНГА ---
           def patch_file(path, search, replace):
@@ -404,8 +407,6 @@ jobs:
           # 1. Обычные файлы
           files_code = [
               ('./flutter/lib/desktop/pages/desktop_setting_page.dart', 'Purslane Ltd'),
-              ('./res/msi/preprocess.py', 'PURSLANE'),
-              ('./res/msi/preprocess.py', 'Purslane Ltd'),
               ('./Cargo.toml', 'Purslane Ltd'),
               ('./libs/portable/Cargo.toml', 'Purslane Ltd'),
           ]
@@ -446,6 +447,29 @@ jobs:
                   with open(runner_rc, 'w', encoding='utf-8-sig') as f:
                       f.write(new_content)
                   print(f'Updated: {runner_rc}')
+          # 5. Файлы MSI (preprocess.py требует XML-безопасную строку)
+          msi_configs = [
+              ('./res/msi/preprocess.py', 'PURSLANE'),
+              ('./res/msi/preprocess.py', 'Purslane Ltd'),
+          ]
+          for path, search in msi_configs:
+              patch_file(path, search, compname_xml)
+
+          # --- ПАТЧИНГ PREPROCESS.PY (ИНЪЕКЦИЯ UTF-8) ---
+          preprocess_path = './res/msi/preprocess.py'
+          if os.path.exists(preprocess_path):
+              with open(preprocess_path, 'r', encoding='utf-8-sig') as f:
+                  content = f.read()
+
+              # Вставляем настройку потоков сразу после import sys
+              if "sys.stdout = io.TextIOWrapper" not in content:
+                  # Добавляем import io и перенастройку
+                  injection = "\nimport io; sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace'); sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')"
+                  content = content.replace("import sys", "import sys" + injection)
+
+                  with open(preprocess_path, 'w', encoding='utf-8-sig') as f:
+                      f.write(content)
+                  print(f'Successfully injected UTF-8 fix into {preprocess_path}')
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'
