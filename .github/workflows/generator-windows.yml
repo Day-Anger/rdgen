@@ -477,25 +477,30 @@ jobs:
               with open(wxs_path, 'r', encoding='utf-8-sig') as f:
                   content = f.read()
 
-              # 1. Форсируем кодовую страницу 65001 (UTF-8)
-              content = content.replace('Codepage="!(loc.SummaryCodepage)"', 'Codepage="65001"')
+              # 1. Включаем UTF-8 для всей базы данных MSI (тег Package)
+              # Это позволит сохранить арабский/китайский в именах и путях
+              if 'Codepage="65001"' not in content:
+                  content = content.replace('<Package ', '<Package Codepage="65001" ')
 
-              # 2. Устанавливаем нейтральный язык (Language="0")
-              # Это позволит избежать конфликтов с локализованными строками
+              # 2. Для SummaryInformation ОБЯЗАТЕЛЬНО ставим ANSI (1252)
+              # Это исправляет вашу ошибку WIX0349
+              content = content.replace('Codepage="!(loc.SummaryCodepage)"', 'Codepage="1252"')
+
+              # 3. Устанавливаем нейтральный язык (Language="0")
               content = content.replace('Language="!(loc.ProductLanguage)"', 'Language="0"')
 
               with open(wxs_path, 'w', encoding='utf-8-sig') as f:
                   f.write(content)
-              print(f'Fixed Package.wxs: Set Language="0" and Codepage="65001"')
+              print(f'Fixed Package.wxs: Database=65001, Summary=1252, Language=0')
 
-          # Проходим по всем файлам локализации в ./res/msi/Package/Language
+          # 4. Исправляем файлы локализации (./res/msi/Package/Language/*.wxl)
+          # Здесь UTF-8 (65001) разрешен и необходим
           wxl_files = glob.glob('./res/msi/Package/Language/*.wxl')
           for wxl_path in wxl_files:
               try:
                   with open(wxl_path, 'r', encoding='utf-8-sig') as f:
                       wxl_content = f.read()
 
-                  # Принудительно ставим UTF-8 для каждой локализации
                   if 'Codepage=' in wxl_content:
                       wxl_content = re.sub(r'Codepage="\d+"', 'Codepage="65001"', wxl_content)
                   else:
@@ -506,6 +511,7 @@ jobs:
                   print(f'Patched localization file: {wxl_path}')
               except Exception as e:
                   print(f'Warning: Could not patch {wxl_path}: {e}')
+
 
 
       - name: change url to custom
@@ -722,45 +728,34 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}", "status": "20% complete"}'
 
-      # Это сохранит уже скомпилированные библиотеки
-      - name: Cache vcpkg installed artifacts
-        uses: actions/cache@v3
-        with:
-          path: |
-            C:\vcpkg\installed
-            C:\Users\runneradmin\AppData\Local\vcpkg\archives
-          # Ключ зависит от ОС, версии vcpkg и файла манифеста (списка библиотек)
-          # Если вы поменяете vcpkg.json, кэш сбросится и соберется новый
-          key: vcpkg-cache-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-${{ hashFiles('vcpkg.json') }}
-          restore-keys: |
-            vcpkg-cache-${{ runner.os }}-${{ env.VCPKG_COMMIT_ID }}-
-
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
-          vcpkgDirectory: C:\vcpkg
+          vcpkgDirectory: ${{ github.workspace }}/vcpkg # Используем локальную папку вместо системной C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
       - name: Install vcpkg dependencies
+        shell: bash
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
+          VCPKG_ROOT: ${{ github.workspace }}/vcpkg
         run: |
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
+          # Создаем папку для установки, чтобы vcpkg не лез в системные папки
+          mkdir -p $VCPKG_ROOT/installed
+
+          $VCPKG_ROOT/vcpkg install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
-            --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1"
-              echo "======"
-              echo ""
-            done
-            exit 1
-          fi
-          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
+            --x-install-root="$VCPKG_ROOT/installed"
+
+      - name: Set VCPKG_ROOT and Export PATH
         shell: bash
+        run: |
+          VCPKG_INSTALLED="${{ github.workspace }}/vcpkg/installed/${{ matrix.job.vcpkg-triplet }}"
+          echo "VCPKG_ROOT=${{ github.workspace }}/vcpkg" >> $GITHUB_ENV
+          echo "VCPKG_INSTALLED=$VCPKG_INSTALLED" >> $GITHUB_ENV
+          # Добавляем путь к бинарникам (DLL) в PATH, чтобы тесты или сборка их видели
+          echo "$VCPKG_INSTALLED/bin" >> $GITHUB_PATH
 
       - name: magick stuff
         if: ${{ env.iconlink_url != 'false' }}
