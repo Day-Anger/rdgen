@@ -413,8 +413,21 @@ jobs:
               patch_file(path, search, compname_code)
 
           # 2. Языковые файлы Rust
+          # for path in glob.glob('./src/lang/**/*.rs', recursive=True):
+          #     patch_file(path, 'RustDesk', compname_code)
           for path in glob.glob('./src/lang/**/*.rs', recursive=True):
-              patch_file(path, 'RustDesk', compname_code)
+            with open(path, 'r', encoding='utf-8-sig') as f:
+                lines = f.readlines()
+
+            with open(path, 'w', encoding='utf-8-sig') as f:
+                for line in lines:
+                    # Если в строке есть перевод и это НЕ powered_by_me
+                    if '", "' in line and 'powered_by_me' not in line:
+                        # Разбиваем на (ключ) и (значение), меняем только в значении
+                        parts = line.split('", "', 1)
+                        line = parts[0] + '", "' + parts[1].replace('RustDesk', compname_code)
+                    f.write(line)
+
 
           # 3. Лицензия
           patch_file('./res/msi/Package/License.rtf', 'Purslane Ltd', compname_rtf)
