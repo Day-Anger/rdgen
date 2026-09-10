@@ -2,3 +2,10 @@
 db.sqlite3
 gunicorn.conf
 .venv
+.env
+/png
+/temp_zips
+/exe
+/media
+data_*.json
+workspace.code-workspace
