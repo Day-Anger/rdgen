@@ -985,7 +985,13 @@ jobs:
           b = importlib.util.module_from_spec(spec)
           sys.argv = ["build.py"]
           spec.loader.exec_module(b)
-          print(f"::notice::built {b.build_libdrmtap_so()}")
+          # build_libdrmtap_so() exists only in recent RustDesk sources
+          # (master); tagged 1.4.x releases don't have it — skip gracefully
+          # instead of failing the whole drm job.
+          if hasattr(b, 'build_libdrmtap_so'):
+              print(f"::notice::built {b.build_libdrmtap_so()}")
+          else:
+              print("::notice::build_libdrmtap_so not present in this RustDesk version, skipping")
           PY
         shell: bash
 
