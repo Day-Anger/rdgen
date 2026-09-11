@@ -347,39 +347,187 @@ jobs:
       - name: change appname to custom
         if: env.appname != 'rustdesk'
         continue-on-error: true
-        shell: bash
+        shell: python
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+          APP_NAME: ${{ env.appname }}
+          COMP_NAME: ${{ env.compname }}
         run: |
-          sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ env.appname }}"|' ./Cargo.toml
-          sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ env.appname }}"|' ./Cargo.toml
-          sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ env.appname }}"|' ./Cargo.toml
-          sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ env.appname }}.exe"|' ./Cargo.toml
-          sed -i 's|name = "RustDesk"|name = "${{ env.appname }}"|' ./Cargo.toml
-          sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
-          sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
-          sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ env.appname }}"|' ./libs/portable/Cargo.toml
-          sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ env.appname }}.exe"|' ./libs/portable/Cargo.toml
-          sed -i -e 's|const APP_PREFIX: \&str = "rustdesk";|const APP_PREFIX: \&str = "${{ env.appname }}";|' ./libs/portable/src/main.rs
-          find ./src/lang -name "*.rs" -exec sed -i -e 's|RustDesk|${{ env.appname }}|' {} \;
-          sed -i -e 's|RustDesk|${{ env.appname }}|' ./flutter/android/app/src/main/res/values/strings.xml
-          sed -i -e "s|title: 'RustDesk'|title: '${{ env.appname }}'|" ./flutter/lib/main.dart
-          sed -i -e "s|return 'RustDesk';|return '${{ env.appname }}';|" ./flutter/lib/web/bridge.dart
-          sed -i 's|android:label="RustDesk"|android:label="${{ env.appname }}"|' ./flutter/android/app/src/main/AndroidManifest.xml
-          sed -i 's|android:label="RustDesk Input"|android:label="${{ env.appname }} Input"|' ./flutter/android/app/src/main/AndroidManifest.xml
-          sed -i 's|RustDesk is Open|${{ env.appname }} is Open|' ./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/BootReceiver.kt
-          sed -i 's|Show Rustdesk|Show ${{ env.appname }}|' ./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/FloatingWindowService.kt
-          sed -i 's|"RustDesk"|"${{ env.appname }}"|' ./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt
-          sed -i 's|"RustDesk Service|"${{ env.appname }} Service|' ./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt
-          sed -i 's|RustDesk|${{ env.appname }}|' ./flutter/lib/main.dart
-          sed -i 's|"RustDesk"|"${{ env.appname }}"|' ./flutter/lib/desktop/widgets/tabbar_widget.dart
-          sed -i 's|"RustDesk"|"${{ env.appname }}"|' ./libs/hbb_common/src/config.rs
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./Cargo.toml
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./src/main.rs
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./Cargo.toml
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
-          sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./src/main.rs
+          import sys
+          import io
+          import os
+          import glob
+
+          # UTF-8 wrappers so non-ASCII names don't crash the step
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+          app_name = os.environ['APP_NAME']
+          comp_name = os.environ.get('COMP_NAME', '')
+
+          print(f"App name: '{app_name}'")
+          print(f"Comp name: '{comp_name}'")
+
+          warnings = []
+
+          def replace_in_file(path, old, new, optional=False):
+              # Encoding-preserving replace (see generator-windows.yml).
+              try:
+                  with open(path, 'rb') as f:
+                      raw = f.read()
+                  if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+                      content, enc = raw.decode('utf-16'), 'utf-16'
+                  elif b'\x00' in raw:
+                      content, enc = raw.decode('utf-16-le'), 'utf-16-le'
+                  elif raw.startswith(b'\xef\xbb\xbf'):
+                      content, enc = raw.decode('utf-8-sig'), 'utf-8-sig'
+                  else:
+                      try:
+                          content, enc = raw.decode('utf-8'), 'utf-8'
+                      except UnicodeDecodeError:
+                          content, enc = raw.decode('latin-1'), 'latin-1'
+                  if old in content:
+                      content = content.replace(old, new)
+                      with open(path, 'w', encoding=enc, newline='') as f:
+                          f.write(content)
+                      print(f"Updated: {path} ('{old}' -> '{new}')")
+                  else:
+                      if optional:
+                          print(f"INFO: Not present, skipped: {path} ('{old}')")
+                      else:
+                          print(f"WARNING: Expected string not found: {path} ('{old}')")
+                          warnings.append((path, old))
+              except Exception as e:
+                  print(f"Error in {path}: {e}")
+
+          # 1. Cargo.toml
+          replace_in_file('./Cargo.toml', 'description = "RustDesk Remote Desktop"', f'description = "{app_name}"')
+          replace_in_file('./Cargo.toml', 'ProductName = "RustDesk"', f'ProductName = "{app_name}"')
+          replace_in_file('./Cargo.toml', 'FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{app_name}"')
+          replace_in_file('./Cargo.toml', 'OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{app_name}.exe"')
+          replace_in_file('./Cargo.toml', 'name = "RustDesk"', f'name = "{app_name}"')
+
+          # 2. libs/portable/Cargo.toml
+          replace_in_file('./libs/portable/Cargo.toml', 'description = "RustDesk Remote Desktop"', f'description = "{app_name}"')
+          replace_in_file('./libs/portable/Cargo.toml', 'ProductName = "RustDesk"', f'ProductName = "{app_name}"')
+          replace_in_file('./libs/portable/Cargo.toml', 'FileDescription = "RustDesk Remote Desktop"', f'FileDescription = "{app_name}"')
+          replace_in_file('./libs/portable/Cargo.toml', 'OriginalFilename = "rustdesk.exe"', f'OriginalFilename = "{app_name}.exe"')
+
+          # 3. libs/portable/src/main.rs
+          replace_in_file('./libs/portable/src/main.rs', 'const APP_PREFIX: &str = "rustdesk";', f'const APP_PREFIX: &str = "{app_name}";')
+
+          # 4. src/lang/*.rs
+          # Only touch the translated value part (after '", "'), never the key.
+          # powered_by_me lines get comp_name when set, other lines get app_name.
+          for path in glob.glob('./src/lang/**/*.rs', recursive=True):
+              with open(path, 'r', encoding='utf-8-sig', newline='') as f:
+                  lines = f.readlines()
+
+              with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+                  for line in lines:
+                      if '", "' in line:
+                          if 'powered_by_me' not in line:
+                              parts = line.split('", "', 1)
+                              line = parts[0] + '", "' + parts[1].replace('RustDesk', app_name)
+                          elif comp_name:
+                              parts = line.split('", "', 1)
+                              line = parts[0] + '", "' + parts[1].replace('RustDesk', comp_name)
+                          else:
+                              print(f"INFO: Skipped 'powered_by_me' in {os.path.basename(path)}")
+                      elif 'RustDesk' in line:
+                          print(f"INFO: Skipped technical line in {os.path.basename(path)}: {line.strip()}")
+
+                      f.write(line)
+
+          # 5. Android-specific files
+          replace_in_file('./flutter/android/app/src/main/res/values/strings.xml', 'RustDesk', app_name)
+          replace_in_file('./flutter/lib/main.dart', "title: 'RustDesk'", f"title: '{app_name}'", optional=True)
+          replace_in_file('./flutter/lib/main.dart', 'RustDesk', app_name, optional=True)
+          replace_in_file('./flutter/lib/web/bridge.dart', "return 'RustDesk';", f"return '{app_name}';", optional=True)
+          replace_in_file('./flutter/android/app/src/main/AndroidManifest.xml', 'android:label="RustDesk"', f'android:label="{app_name}"')
+          replace_in_file('./flutter/android/app/src/main/AndroidManifest.xml', 'android:label="RustDesk Input"', f'android:label="{app_name} Input"')
+          replace_in_file('./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/BootReceiver.kt', 'RustDesk is Open', f'{app_name} is Open')
+          replace_in_file('./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/FloatingWindowService.kt', 'Show Rustdesk', f'Show {app_name}', optional=True)
+          replace_in_file('./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/FloatingWindowService.kt', 'translate("Show RustDesk")', f'translate("Show {app_name}")')
+          replace_in_file('./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt', '"RustDesk"', f'"{app_name}"')
+          replace_in_file('./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt', '"RustDesk Service', f'"{app_name} Service')
+          replace_in_file('./flutter/lib/desktop/widgets/tabbar_widget.dart', '"RustDesk"', f'"{app_name}"')
+          replace_in_file('./libs/hbb_common/src/config.rs', '"RustDesk"', f'"{app_name}"')
+
+          if warnings:
+              print(f"WARNING: {len(warnings)} expected target(s) not found (see WARNING lines above)")
+
+          print("Done!")
+
+      - name: change company name
+        if: env.compname != 'Purslane Ltd'
+        continue-on-error: true
+        shell: python
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+          COMP_NAME: ${{ env.compname }}
+        run: |
+          import sys
+          import io
+          import os
+
+          # UTF-8 wrappers so non-ASCII names don't crash the step
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+          comp_name = os.environ['COMP_NAME']
+          old_names = ['Purslane Tech Pte. Ltd.', 'Purslane Ltd']
+
+          print(f"Company name: '{comp_name}'")
+
+          warnings = []
+
+          def replace_in_file(path, old, new, optional=False):
+              # Encoding-preserving replace (see generator-windows.yml).
+              try:
+                  with open(path, 'rb') as f:
+                      raw = f.read()
+                  if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+                      content, enc = raw.decode('utf-16'), 'utf-16'
+                  elif b'\x00' in raw:
+                      content, enc = raw.decode('utf-16-le'), 'utf-16-le'
+                  elif raw.startswith(b'\xef\xbb\xbf'):
+                      content, enc = raw.decode('utf-8-sig'), 'utf-8-sig'
+                  else:
+                      try:
+                          content, enc = raw.decode('utf-8'), 'utf-8'
+                      except UnicodeDecodeError:
+                          content, enc = raw.decode('latin-1'), 'latin-1'
+                  if old in content:
+                      content = content.replace(old, new)
+                      with open(path, 'w', encoding=enc, newline='') as f:
+                          f.write(content)
+                      print(f"Updated: {path} ('{old}' -> '{new}')")
+                  else:
+                      if optional:
+                          print(f"INFO: Not present, skipped: {path} ('{old}')")
+                      else:
+                          print(f"WARNING: Expected string not found: {path} ('{old}')")
+                          warnings.append((path, old))
+              except Exception as e:
+                  print(f"Error in {path}: {e}")
+
+          def replace_company(path, optional=False):
+              replace_in_file(path, old_names[0], comp_name, optional=optional)
+              replace_in_file(path, old_names[1], comp_name, optional=True)
+
+          # Same coverage as the desktop builds, minus Windows-only files
+          replace_company('./flutter/lib/desktop/pages/desktop_setting_page.dart')
+          replace_company('./Cargo.toml')
+          replace_company('./libs/portable/Cargo.toml')
+          replace_company('./src/main.rs', optional=True)
+
+          if warnings:
+              print(f"WARNING: {len(warnings)} expected target(s) not found (see WARNING lines above)")
+
+          print("Done!")
 
       - name: change url to custom
         if: env.urlLink != 'https://rustdesk.com'

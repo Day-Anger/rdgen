@@ -127,45 +127,189 @@ jobs:
           brew install imagemagick potrace nasm cmake gcc wget ninja
           echo "$(brew --prefix imagemagick)/bin" >> $GITHUB_PATH
 
-      - name: Update macOS Info.plist and settings
+      - name: Update macOS Info.plist and branding
         continue-on-error: false
+        shell: python
+        env:
+          PYTHONUTF8: "1"
+          PYTHONIOENCODING: "utf-8"
+          APP_NAME: ${{ env.appname }}
+          COMP_NAME: ${{ env.compname }}
+        run: |
+          import sys
+          import io
+          import os
+          import glob
+          import re
+
+          # UTF-8 wrappers so non-ASCII names don't crash the step.
+          # Values arrive via env (not GH-expression interpolation), so
+          # special characters (& | ' ` ~ CJK) cannot break replacements.
+          sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+          sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+          app_name = os.environ.get('APP_NAME', '') or 'RustDesk'
+          comp_name = os.environ.get('COMP_NAME', '')
+          old_names = ['Purslane Tech Pte. Ltd.', 'Purslane Ltd']
+          errors = []
+
+          print(f"App name: '{app_name}'")
+          print(f"Comp name: '{comp_name}'")
+
+          def read_text(path):
+              with open(path, 'rb') as f:
+                  raw = f.read()
+              if raw.startswith(b'\xff\xfe') or raw.startswith(b'\xfe\xff'):
+                  return raw.decode('utf-16'), 'utf-16'
+              if b'\x00' in raw:
+                  return raw.decode('utf-16-le'), 'utf-16-le'
+              if raw.startswith(b'\xef\xbb\xbf'):
+                  return raw.decode('utf-8-sig'), 'utf-8-sig'
+              try:
+                  return raw.decode('utf-8'), 'utf-8'
+              except UnicodeDecodeError:
+                  return raw.decode('latin-1'), 'latin-1'
+
+          def write_text(path, content, enc):
+                      with open(path, 'w', encoding=enc, newline='') as f:
+                  f.write(content)
+
+          warnings = []
+
+          def replace_in_file(path, old, new, optional=False):
+              try:
+                  content, enc = read_text(path)
+                  if old in content:
+                      write_text(path, content.replace(old, new), enc)
+                      print(f"Updated: {path} ('{old}' -> '{new}')")
+                  else:
+                      print(f"INFO: Not present, skipped: {path} ('{old}')")
+              except Exception as e:
+                  print(f"Error in {path}: {e}")
+                  errors.append(path)
+
+          def replace_company(path, optional=False):
+              replace_in_file(path, old_names[0], comp_name, optional=optional)
+              replace_in_file(path, old_names[1], comp_name, optional=True)
+
+          def sub_in_file(path, pattern, repl, optional=False):
+              # re.sub with a function replacement: backslashes in names
+              # are passed through literally.
+              try:
+                  content, enc = read_text(path)
+                  new_content, n = re.subn(pattern, lambda m: repl, content)
+                  if n:
+                      write_text(path, new_content, enc)
+                      print(f"Updated: {path} ({n} match(es))")
+                  else:
+                      if optional:
+                          print(f"INFO: Not present, skipped: {path} ('{pattern}')")
+                      else:
+                          print(f"WARNING: Expected string not found: {path} ('{pattern}')")
+                          warnings.append((path, pattern))
+              except Exception as e:
+                  print(f"Error in {path}: {e}")
+                  errors.append(path)
+
+          # 1. Info.plist
+          plist = './flutter/macos/Runner/Info.plist'
+          sub_in_file(plist,
+                      r'<key>CFBundleName</key>.*<string>.*</string>',
+                      '<key>CFBundleName</key>\n\t<string>' + app_name + '</string>', optional=True)
+          sub_in_file(plist,
+                      r'<key>CFBundleDisplayName</key>.*<string>.*</string>',
+                      '<key>CFBundleDisplayName</key>\n\t<string>' + app_name + '</string>', optional=True)
+          sub_in_file(plist,
+                      r'<key>CFBundleIdentifier</key>.*<string>.*</string>',
+                      '<key>CFBundleIdentifier</key>\n\t<string>com.' + app_name + '.app</string>', optional=True)
+
+          # 2. AppInfo.xcconfig (line-based, same as before)
+          xcconfig = './flutter/macos/Runner/Configs/AppInfo.xcconfig'
+          try:
+              content, enc = read_text(xcconfig)
+              out = []
+              company_hits = 0
+              for line in content.splitlines(keepends=True):
+                  if line.startswith('PRODUCT_NAME = '):
+                      line = 'PRODUCT_NAME = ' + app_name + '\n'
+                  elif line.startswith('PRODUCT_BUNDLE_IDENTIFIER = '):
+                      line = 'PRODUCT_BUNDLE_IDENTIFIER = com.' + app_name + '.app\n'
+                  else:
+                      for old in old_names:
+                          if comp_name and old in line:
+                              line = line.replace(old, comp_name)
+                              company_hits += 1
+                  out.append(line)
+              write_text(xcconfig, ''.join(out), enc)
+              print(f"Updated: {xcconfig}")
+              if comp_name and company_hits == 0:
+                  print(f"WARNING: No company name found in: {xcconfig}")
+                  warnings.append((xcconfig, 'company name'))
+          except Exception as e:
+              print(f"Error in {xcconfig}: {e}")
+              errors.append(xcconfig)
+
+          # 3. Shared company-name targets
+          if comp_name:
+              replace_company('./Cargo.toml')
+              replace_company('./libs/portable/Cargo.toml')
+              replace_company('./flutter/lib/desktop/pages/desktop_setting_page.dart')
+              replace_company('./src/main.rs', optional=True)
+
+          # 4. Xcode project settings
+          pbxproj = './flutter/macos/Runner.xcodeproj/project.pbxproj'
+          replace_in_file(pbxproj, 'PRODUCT_NAME = "RustDesk"', 'PRODUCT_NAME = "' + app_name + '"', optional=True)
+          sub_in_file(pbxproj,
+                      r'PRODUCT_BUNDLE_IDENTIFIER = ".*"',
+                      'PRODUCT_BUNDLE_IDENTIFIER = "com.' + app_name + '.app"', optional=True)
+          # Unquoted form used by current Flutter templates
+          # (xcconfig above already governs the build; this keeps the
+          # project file consistent)
+          replace_in_file(pbxproj, 'com.carriez.rustdesk', 'com.' + app_name + '.app')
+
+          # 5. CMake settings
+          cmake = './flutter/macos/CMakeLists.txt'
+          if os.path.isfile(cmake):
+              sub_in_file(cmake,
+                          r'set\(BINARY_NAME ".*"\)',
+                          'set(BINARY_NAME "' + app_name + '")')
+
+          # 6. src/lang/*.rs (value part only; powered_by_me keeps company name)
+          for path in glob.glob('./src/lang/**/*.rs', recursive=True):
+              with open(path, 'r', encoding='utf-8-sig', newline='') as f:
+                  lines = f.readlines()
+
+              with open(path, 'w', encoding='utf-8-sig', newline='') as f:
+                  for line in lines:
+                      if '", "' in line:
+                          if 'powered_by_me' not in line:
+                              parts = line.split('", "', 1)
+                              line = parts[0] + '", "' + parts[1].replace('RustDesk', app_name)
+                          elif comp_name:
+                              parts = line.split('", "', 1)
+                              line = parts[0] + '", "' + parts[1].replace('RustDesk', comp_name)
+                          else:
+                              print(f"INFO: Skipped 'powered_by_me' in {os.path.basename(path)}")
+                      elif 'RustDesk' in line:
+                          print(f"INFO: Skipped technical line in {os.path.basename(path)}: {line.strip()}")
+
+                      f.write(line)
+
+          # NOTE: the old Podfile sed replaced its target with itself (no-op) —
+          # intentionally dropped.
+
+          if errors:
+              print(f"FAILED files: {errors}")
+              sys.exit(1)
+          if warnings:
+              print(f"WARNING: {len(warnings)} expected target(s) not found (see WARNING lines above)")
+
+          print("Done!")
+
+      - name: Update macOS URLs
+        continue-on-error: true
         shell: bash
         run: |
-          # MACSTUFF Update Info.plist
-          sed -i '' -e 's|<key>CFBundleName</key>.*<string>.*</string>|<key>CFBundleName</key>\n\t<string>${{ env.appname }}</string>|' ./flutter/macos/Runner/Info.plist
-          sed -i '' -e 's|<key>CFBundleDisplayName</key>.*<string>.*</string>|<key>CFBundleDisplayName</key>\n\t<string>${{ env.appname }}</string>|' ./flutter/macos/Runner/Info.plist
-          sed -i '' -e 's|<key>CFBundleIdentifier</key>.*<string>.*</string>|<key>CFBundleIdentifier</key>\n\t<string>com.${{ env.appname }}.app</string>|' ./flutter/macos/Runner/Info.plist
-          
-          # MACSTUFF Update AppInfo.xcconfig
-          sed -i '' -e 's|PRODUCT_NAME = .*|PRODUCT_NAME = ${{ env.appname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
-          sed -i '' -e 's|PRODUCT_BUNDLE_IDENTIFIER = .*|PRODUCT_BUNDLE_IDENTIFIER = com.${{ env.appname }}.app|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
-          sed -i '' -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
-          sed -i '' -e 's|Purslane Ltd.|${{ env.compname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
-
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./Cargo.toml
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./src/main.rs
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./Cargo.toml
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
-          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
-          sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./src/main.rs
-          
-          # Update Xcode project settings
-          sed -i '' -e 's/PRODUCT_NAME = "RustDesk"/PRODUCT_NAME = "${{ env.appname }}"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj
-          sed -i '' -e 's/PRODUCT_BUNDLE_IDENTIFIER = ".*"/PRODUCT_BUNDLE_IDENTIFIER = "com.${{ env.appname }}.app"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj
-
-          # Update CMake settings
-          if [ -f "./flutter/macos/CMakeLists.txt" ]; then
-            sed -i '' -e 's/set(BINARY_NAME ".*")/set(BINARY_NAME "${{ env.appname }}")/' ./flutter/macos/CMakeLists.txt
-          fi
-
-          # Update Podfile - keep the target as 'Runner'
-          sed -i '' -e 's/target '"'"'Runner'"'"' do/target '"'"'Runner'"'"' do/' ./flutter/macos/Podfile
-
-          find ./src/lang -name "*.rs" -exec sed -i '' -e 's|RustDesk|${{ env.appname }}|' {} \;
-          sed -i '' -e 's|RustDesk|${{ env.appname }}|' ./src/lang/nl.rs
-           
           sed -i '' -e 's|https://rustdesk.com|${{ env.urlLink }}|' ./build.py
           sed -i '' -e "s|launchUrl(Uri.parse('https://rustdesk.com'));|launchUrl(Uri.parse('${{ env.urlLink }}'));|" ./flutter/lib/common.dart
           sed -i '' -e "s|launchUrlString('https://rustdesk.com');|launchUrlString('${{ env.urlLink }}');|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
