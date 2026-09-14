@@ -411,14 +411,15 @@ jobs:
             git apply allowCustom.diff
 
       - name: Install LLVM and Clang
-        uses: rustdesk-org/install-llvm-action-32bit@master
+        uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install nightly-2023-10-13-${{ matrix.job.target }} --target ${{ matrix.job.target }} --component rustfmt --profile minimal --no-self-update --force-non-host
-          echo "RUSTUP_TOOLCHAIN=nightly-2023-10-13-${{ matrix.job.target }}" >> $GITHUB_ENV
+          rustup toolchain install nightly-2023-10-13-x86_64-pc-windows-msvc --component rustfmt --profile minimal --no-self-update
+          rustup target add ${{ matrix.job.target }} --toolchain nightly-2023-10-13-x86_64-pc-windows-msvc
+          echo "RUSTUP_TOOLCHAIN=nightly-2023-10-13-x86_64-pc-windows-msvc" >> $GITHUB_ENV
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -518,9 +519,9 @@ jobs:
           python3 res/inline-sciter.py
           # Patch sciter x86
           sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
-          cargo build --features inline,vram,hwcodec --release --bins
+          cargo build --target ${{ matrix.job.target }} --features inline,vram,hwcodec --release --bins
           mkdir -p ./Release
-          mv ./target/release/rustdesk.exe ./Release/rustdesk.exe
+          mv ./target/${{ matrix.job.target }}/release/rustdesk.exe ./Release/rustdesk.exe
           curl -LJ -o ./Release/sciter.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
           echo "output_folder=./Release" >> $GITHUB_OUTPUT
           curl -LJ -o ./usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
@@ -590,7 +591,7 @@ jobs:
           python3 ./generate.py -f ../../Release/ -o . -e "../../Release/${{ env.appname }}.exe"
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
+          mv ./target/${{ matrix.job.target }}/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
 
       - name: zip exe
         continue-on-error: true
