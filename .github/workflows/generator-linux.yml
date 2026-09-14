@@ -858,6 +858,7 @@ jobs:
 
   build-rustdesk-linux-drm:
     needs: [generate-bridge-linux, setup]
+    if: ${{ env.VERSION == 'master' }}
     name: build rustdesk linux drm x86_64
     runs-on: ubuntu-22.04
     steps:
