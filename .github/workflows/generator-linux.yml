@@ -730,7 +730,7 @@ jobs:
                 # Change files names in the output .deb
                 sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/\"${{ env.appname }}.service\"|g" build.py
                 sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1\"${{ env.appname }}\"; cp -r \1\* \2/\"${{ env.appname }}\"|g" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\"${{ env.appname }}\"|g" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\\\\\"${{ env.appname }}\\\\\"|g" build.py
                 sed -ie "s|Package: rustdesk|Package: $PKGNAME|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
@@ -1491,7 +1491,7 @@ jobs:
                 PKGNAME=$(echo "${{ env.appname }}" | tr ' ' '-')
                 sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/\"${{ env.appname }}.service\"|g" build.py
                 sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1\"${{ env.appname }}\"; cp -r \1\* \2/\"${{ env.appname }}\"|g" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\"${{ env.appname }}\"|g" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\\\\\"${{ env.appname }}\\\\\"|g" build.py
                 sed -ie "s|Package: rustdesk|Package: $PKGNAME|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
