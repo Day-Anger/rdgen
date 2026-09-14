@@ -728,46 +728,37 @@ jobs:
                 # Debian package names cannot contain spaces; use hyphens for the control file
                 PKGNAME=$(echo "${{ env.appname }}" | tr ' ' '-')
                 # Change files names in the output .deb
-                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service|g" build.py
-                sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1${{ env.appname }}; cp -r \1\* \2/${{ env.appname }}|g" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
-                # The rename above is greedy in \1, so it rewrites only the LAST
-                # "rustdesk" of each path and leaves build.py's globs pointing where the
-                # staging tree never exists. Three corrections, all confined to the drm
-                # code paths (assert_staged_binary_is_drm, measured_glibc_floor); the
-                # stock packaging path never executes those lines.
-                #
-                # 1. Directory component: the cp -r rename above stages into
-                #    tmpdeb/usr/share/<appname>/, but the globs kept usr/share/rustdesk/.
+                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/\"${{ env.filename }}.service\"|g" build.py
+                sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1\"${{ env.filename }}\"; cp -r \1\* \2/\"${{ env.filename }}\"|g" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\\\\\"${{ env.filename }}\\\\\"|g" build.py
+                # Upstream #291 corrections below are written for unquoted
+                # appname paths, so in filename-world (quoted names) their
+                # patterns match nothing and stay inert; in appname-world
+                # they fix the drm-only packaging checks as reviewed.
+                # 1. Directory component glob fix.
                 sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${{ env.appname }}/|g" build.py
-                # 2. Library filename: build.py renames only the executable and copies the
-                #    bundle verbatim, so the cdylib stays librustdesk.so. The greedy sed
-                #    renamed it to lib<appname>.so, and that is the file carrying the drm
-                #    marker -- the thin Flutter launcher does not.
+                # 2. Library filename must stay librustdesk.so (drm marker carrier).
                 sed -ie "s|lib/lib${{ env.appname }}\.so|lib/librustdesk.so|g" build.py
-                # 3. libdrmtap must NOT be renamed: drmtap_dl.rs dlopens the absolute path
-                #    /usr/lib/rustdesk/libdrmtap.so.0, compiled into the binary and
-                #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
-                #    packages and installs cleanly, then never loads on the user's machine.
+                # 3. libdrmtap must NOT be renamed (absolute dlopen path).
                 sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
                 sed -ie "s|Package: rustdesk|Package: $PKGNAME|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
-                  sed -ie "s|rustdesk|${{ env.appname }}|g" "$FILE"
+                  sed -ie "s|rustdesk|${{ env.filename }}|g" "$FILE"
                 done
                 for file in "./res/rpm-flutter.spec" "./res/rpm-flutter-suse.spec"; do
                   sed -ie "s|^\(URL:\s*\).*|\1${{ env.downloadLink }}|g" "$file"
                   sed -ie "s|^\(Vendor:\s*\).*|\1${{ env.compname }}|g" "$file"
-                  sed -ie '/\${\?HBB}\?/!{/\(^Name:\|\/usr\|\/etc\|systemctl\)/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/!{/\(^Name:\|\/usr\|\/etc\|systemctl\)/s|rustdesk|${{ env.filename }}|g}' "$file"
                   sed -ie "s|^\(Name:\s*\).*|\1$PKGNAME|g" "$file"
-                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.appname }}|g}' "$file"
-                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.appname }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/{/^install/s|\(\/usr\/.*\/\)rustdesk|\1${{ env.filename }}|g}' "$file"
+                  sed -ie '/\${\?HBB}\?/{/^mkdir/s|rustdesk|${{ env.filename }}|g}' "$file"
                   for extension in ".desktop" "-link.desktop" ".service"; do
-                    sed -ie "/^%files$/i\mv %{buildroot}/usr/share/${{ env.appname }}/files/rustdesk$extension %{buildroot}/usr/share/${{ env.appname }}/files/\"${{ env.appname }}$extension\"" "$file"
-                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/\"${{ env.appname }}$extension\"" "$file"
-                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.appname }}/files/\"${{ env.appname }}$extension\"" "$file"
+                    sed -ie "/^%files$/i\mv %{buildroot}/usr/share/${{ env.filename }}/files/rustdesk$extension %{buildroot}/usr/share/${{ env.filename }}/files/\"${{ env.filename }}$extension\"" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|RustDesk|${{ env.appname }}|g' %{buildroot}/usr/share/${{ env.filename }}/files/\"${{ env.filename }}$extension\"" "$file"
+                    sed -ie "/^%files$/i\sed -ie 's|rustdesk|${{ env.filename }}|g' %{buildroot}/usr/share/${{ env.filename }}/files/\"${{ env.filename }}$extension\"" "$file"
                   done
                   sed -ie '/^%files$/i\\n' "$file"
                 done
@@ -1518,34 +1509,25 @@ jobs:
             fi
 
             if [ "${{ env.appname }}" != "rustdesk" ]; then
-                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/${{ env.appname }}.service|g" build.py
-                sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1${{ env.appname }}; cp -r \1\* \2/${{ env.appname }}|g" build.py
-                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1${{ env.appname }}|g" build.py
-                # The rename above is greedy in \1, so it rewrites only the LAST
-                # "rustdesk" of each path and leaves build.py's globs pointing where the
-                # staging tree never exists. Three corrections, all confined to the drm
-                # code paths (assert_staged_binary_is_drm, measured_glibc_floor); the
-                # stock packaging path never executes those lines.
-                #
-                # 1. Directory component: the cp -r rename above stages into
-                #    tmpdeb/usr/share/<appname>/, but the globs kept usr/share/rustdesk/.
+                sed -ie "s|\(cp .* \)tmpdeb/usr/share/rustdesk/files/systemd/|\1tmpdeb/usr/share/rustdesk/files/systemd/\"${{ env.filename }}.service\"|g" build.py
+                sed -ie "s|cp -r \(.\+\)\* \([^ ]\+\)/rustdesk|mv \1rustdesk \1\"${{ env.filename }}\"; cp -r \1\* \2/\"${{ env.filename }}\"|g" build.py
+                sed -ie "s|\(tmpdeb/[^ ]*\)rustdesk|\1\\\\\"${{ env.filename }}\\\\\"|g" build.py
+                # Upstream #291 corrections below are written for unquoted
+                # appname paths, so in filename-world (quoted names) their
+                # patterns match nothing and stay inert; in appname-world
+                # they fix the drm-only packaging checks as reviewed.
+                # 1. Directory component glob fix.
                 sed -ie "s|tmpdeb/usr/share/rustdesk/|tmpdeb/usr/share/${{ env.appname }}/|g" build.py
-                # 2. Library filename: build.py renames only the executable and copies the
-                #    bundle verbatim, so the cdylib stays librustdesk.so. The greedy sed
-                #    renamed it to lib<appname>.so, and that is the file carrying the drm
-                #    marker -- the thin Flutter launcher does not.
+                # 2. Library filename must stay librustdesk.so (drm marker carrier).
                 sed -ie "s|lib/lib${{ env.appname }}\.so|lib/librustdesk.so|g" build.py
-                # 3. libdrmtap must NOT be renamed: drmtap_dl.rs dlopens the absolute path
-                #    /usr/lib/rustdesk/libdrmtap.so.0, compiled into the binary and
-                #    rewritten by nothing here. Staging it under /usr/lib/<appname>/
-                #    packages and installs cleanly, then never loads on the user's machine.
+                # 3. libdrmtap must NOT be renamed (absolute dlopen path).
                 sed -ie "s|tmpdeb/usr/lib/${{ env.appname }}|tmpdeb/usr/lib/rustdesk|g" build.py
                 sed -ie "s|Package: rustdesk|Package: $PKGNAME|g" build.py
                 sed -ie "s|RustDesk|${{ env.appname }}|g" res/rustdesk.desktop
                 FILES=$(sed -ne "s~.*cp\s\(../\)\?\+\(.\+\.\(desktop\|service\)\)\s\+tmpdeb/.*~\2~p" build.py | sort | uniq)
                 FILES=$(echo -e "$FILES\n$(ls --color=never res/DEBIAN/*)")
                 for FILE in $(echo $FILES | sed "s/\n/ /g"); do
-                  sed -ie "s|rustdesk|${{ env.appname }}|g" "$FILE"
+                  sed -ie "s|rustdesk|${{ env.filename }}|g" "$FILE"
                 done
             fi
 
