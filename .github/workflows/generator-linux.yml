@@ -858,7 +858,6 @@ jobs:
 
   build-rustdesk-linux-drm:
     needs: [generate-bridge-linux, setup]
-    if: ${{ env.VERSION == 'master' }}
     name: build rustdesk linux drm x86_64
     runs-on: ubuntu-22.04
     steps:
@@ -918,6 +917,16 @@ jobs:
         with:
           repository: rustdesk/rustdesk
           submodules: recursive
+
+      - name: Detect DRM support
+        run: |
+          if grep -q "'--drm'" build.py; then
+            echo "DRM_SUPPORTED=true" >> $GITHUB_ENV
+            echo "::notice::DRM/KMS capture backend detected in this RustDesk version"
+          else
+            echo "DRM_SUPPORTED=false" >> $GITHUB_ENV
+            echo "::notice::DRM/KMS capture backend not present in this RustDesk version, skipping DRM build"
+          fi
 
       - name: Set Swap Space
         uses: pierotofy/set-swap-space@master
@@ -979,6 +988,7 @@ jobs:
         shell: bash
 
       - name: Build libdrmtap
+        if: env.DRM_SUPPORTED == 'true'
         run: |
           sudo apt-get install -y meson ninja-build pkg-config \
             libdrm-dev libegl1-mesa-dev libgles2-mesa-dev
@@ -1352,6 +1362,7 @@ jobs:
           path: ./
 
       - uses: rustdesk-org/run-on-arch-action@d3fcfbb632b84cf7f6bc772bfaaa2c2f4f8789a8
+        if: env.DRM_SUPPORTED == 'true'
         name: Build rustdesk
         id: vcpkg
         with:
@@ -1496,7 +1507,7 @@ jobs:
             done
 
       - name: send file to rdgen server
-        if: ${{ env.rdgen == 'true' }}
+        if: ${{ env.rdgen == 'true' && env.DRM_SUPPORTED == 'true' }}
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -1507,7 +1518,7 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./output/${{ env.filename }}-unattended-wayland-x86_64.deb" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
 
       - name: send file to api server
-        if: ${{ env.rdgen == 'false' }}
+        if: ${{ env.rdgen == 'false' && env.DRM_SUPPORTED == 'true' }}
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -1519,7 +1530,7 @@ jobs:
 
       - name: Upload deb
         uses: actions/upload-artifact@master
-        if: env.UPLOAD_ARTIFACT == 'true'
+        if: ${{ env.UPLOAD_ARTIFACT == 'true' && env.DRM_SUPPORTED == 'true' }}
         with:
           name: ${{ env.filename }}-unattended-wayland-x86_64.deb
           path: ./output/${{ env.filename }}-unattended-wayland-x86_64.deb
