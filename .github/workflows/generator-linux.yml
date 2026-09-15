@@ -1624,7 +1624,7 @@ jobs:
         shell: bash
         run: |
           if [ "${{ env.appname }}" != "rustdesk" ] && [ "${{ env.appname }}" != "RustDesk" ]; then
-            sed -ie "s|rustdesk|${{ env.appname }}|g" appimage/*
+            sed -ie "s|rustdesk|${{ env.filename }}|g" appimage/*
             mv appimage/rustdesk.deb "appimage/${{ env.filename }}.deb" 2>/dev/null || true
           fi
           sudo apt-get update -y
@@ -1740,8 +1740,8 @@ jobs:
             apt-get install -y git flatpak flatpak-builder
           run: |
             if [ "${{ env.appname }}" != "rustdesk" ] && [ "${{ env.appname }}" != "RustDesk" ]; then
-              sed -ie "s|rustdesk|${{ env.appname }}|g" flatpak/*
-              sed -ie "s|RustDesk|${{ env.appname }}|g" flatpak/*
+              sed -ie "s|rustdesk|${{ env.filename }}|g" flatpak/*
+              sed -ie "s|RustDesk|${{ env.filename }}|g" flatpak/*
               mv flatpak/rustdesk.deb "flatpak/${{ env.filename }}.deb" 2>/dev/null || true
             fi
             # disable git safe.directory
