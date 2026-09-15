@@ -338,7 +338,7 @@ jobs:
           sed -i -e 's|Homepage: https://rustdesk.com|Homepage: ${{ env.urlLink }}|' ./build.py
           sed -i -e "s|<div .link .custom-event url='https://rustdesk.com'>|<div .link .custom-event url='${{ env.urlLink }}'>|" ./src/ui/index.tis
           sed -i -e "s|<div .link .custom-event url='https://rustdesk.com/privacy.html'>|<div .link .custom-event url='${{ env.urlLink }}/privacy.html'>|" ./src/ui/index.tis
-          sed -i -e "s|https://rustdesk.com/|${{env.urlLink }}|" ./res/setup.nsi
+          if [ -f ./res/setup.nsi ]; then sed -i -e "s|https://rustdesk.com/|${{env.urlLink }}|" ./res/setup.nsi; else echo "res/setup.nsi not present in this rustdesk version, skipped"; fi
 
       - name: change download link to custom
         if: env.downloadLink != 'https://rustdesk.com/download'
@@ -534,17 +534,39 @@ jobs:
           # host build-script link, so scope the Win32 lib to the i686 target
           # via per-target rustflags (-L from rustflags precedes build-script
           # paths in the link line; host keeps the default x64 prebuilt).
+          # NOTE: rustdesk ships .cargo/config.toml with its own
+          # [target.i686-pc-windows-msvc] rustflags -> MERGE into the array.
           cargo fetch
           SODIUM_WIN32_DIR="$(ls -d "$HOME"/.cargo/registry/src/*/libsodium-sys-0.2.7/msvc/Win32/Release/v142 | head -n 1)"
           echo "SODIUM_WIN32_DIR=$SODIUM_WIN32_DIR"
           ls "$SODIUM_WIN32_DIR/libsodium.lib"
           mkdir -p .cargo
           SODIUM_WIN32_NATIVE="$(cygpath -m "$SODIUM_WIN32_DIR")"
-          if [ -f .cargo/config.toml ] && grep -q '^\[target\.i686-pc-windows-msvc\]' .cargo/config.toml; then
-            echo "i686 target table already present in .cargo/config.toml"
-          else
-            printf '\n[target.i686-pc-windows-msvc]\nrustflags = ["-L", "native=%s"]\n' "$SODIUM_WIN32_NATIVE" >> .cargo/config.toml
-          fi
+          SODIUM_WIN32_NATIVE="$SODIUM_WIN32_NATIVE" python3 - <<'PYEOF'
+          import os, re
+          native = os.environ['SODIUM_WIN32_NATIVE']
+          entry = f'"-L", "native={native}"'
+          p = '.cargo/config.toml'
+          s = open(p, encoding='utf-8').read() if os.path.exists(p) else ''
+          if f'native={native}' in s:
+              print('sodium Win32 -L already configured')
+          else:
+              m = re.search(r'\[target\.i686-pc-windows-msvc\](.*?)(?=^\[|\Z)', s, re.S | re.M)
+              if m:
+                  sec = m.group(1)
+                  rm = re.search(r'rustflags\s*=\s*\[(.*?)\]', sec, re.S)
+                  if rm:
+                      inner = rm.group(1).rstrip()
+                      sep = '' if inner.strip() == '' else ', '
+                      sec = sec[:rm.start(1)] + inner + sep + entry + sec[rm.end(1):]
+                  else:
+                      sec = sec + f'rustflags = [{entry}]\n'
+                  s = s[:m.start(1)] + sec + s[m.end(1):]
+              else:
+                  s += f'\n[target.i686-pc-windows-msvc]\nrustflags = [{entry}]\n'
+              open(p, 'w', encoding='utf-8').write(s)
+              print('sodium Win32 -L injected')
+          PYEOF
           cat .cargo/config.toml
           cargo build --target ${{ matrix.job.target }} --features inline,vram,hwcodec --release --bins
           mkdir -p ./Release
