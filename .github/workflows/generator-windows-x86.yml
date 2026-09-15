@@ -639,6 +639,11 @@ jobs:
           pip3 install -r requirements.txt
           python3 ./generate.py -f ../../Release/ -o . -e "../../Release/${{ env.appname }}.exe"
           popd
+          # rustdesk-portable-packer is a separate workspace member (root
+          # `cargo build --bins` does not build it) and it embeds
+          # libs/portable/app_metadata.toml via include_bytes!, so compile it
+          # explicitly AFTER generate.py creates that file.
+          cargo build --target ${{ matrix.job.target }} --package rustdesk-portable-packer --release
           mkdir -p ./SignOutput
           mv ./target/${{ matrix.job.target }}/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
 
