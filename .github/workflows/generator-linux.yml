@@ -1740,8 +1740,12 @@ jobs:
             apt-get install -y git flatpak flatpak-builder
           run: |
             if [ "${{ env.appname }}" != "rustdesk" ] && [ "${{ env.appname }}" != "RustDesk" ]; then
-              sed -ie "s|rustdesk|${{ env.filename }}|g" flatpak/*
-              sed -ie "s|RustDesk|${{ env.filename }}|g" flatpak/*
+              # placeholder pass: two chained seds would re-match the inserted
+              # filename (it contains "RustDesk") and corrupt ids/paths
+              sed -ie "s|rustdesk|@@RDGEN_FLAT_0@@|g" flatpak/*
+              sed -ie "s|RustDesk|@@RDGEN_FLAT_1@@|g" flatpak/*
+              sed -ie "s|@@RDGEN_FLAT_0@@|${{ env.filename }}|g" flatpak/*
+              sed -ie "s|@@RDGEN_FLAT_1@@|${{ env.filename }}|g" flatpak/*
               mv flatpak/rustdesk.deb "flatpak/${{ env.filename }}.deb" 2>/dev/null || true
             fi
             # disable git safe.directory
@@ -1753,7 +1757,7 @@ jobs:
             pushd flatpak
             git clone https://github.com/flathub/shared-modules.git --depth=1
             flatpak-builder --user --install-deps-from=flathub -y --force-clean --repo=repo ./build ./rustdesk.json
-            flatpak build-bundle ./repo ${{ env.filename }}-${{ matrix.job.arch }}.flatpak com.${{ env.appname }}.${{ env.appname }}
+            flatpak build-bundle ./repo ${{ env.filename }}-${{ matrix.job.arch }}.flatpak com.${{ env.filename }}.${{ env.filename }}
 
       - name: send file to rdgen server
         if: ${{ env.rdgen == 'true' }}
