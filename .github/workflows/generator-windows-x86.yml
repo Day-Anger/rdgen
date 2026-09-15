@@ -529,13 +529,23 @@ jobs:
           # Patch sciter x86
           sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
           # libsodium-sys 0.2.7 build.rs selects its prebuilt lib via HOST cfg
-          # (target_pointer_width), so cross-compiling host-x64 -> target-x86
-          # wrongly links msvc/x64 (LNK2019 x132). Force the Win32 prebuilt.
+          # (target_pointer_width): cross host-x64 -> target-x86 wrongly links
+          # msvc/x64 (LNK2019 x132). SODIUM_LIB_DIR is global and breaks the
+          # host build-script link, so scope the Win32 lib to the i686 target
+          # via per-target rustflags (-L from rustflags precedes build-script
+          # paths in the link line; host keeps the default x64 prebuilt).
           cargo fetch
           SODIUM_WIN32_DIR="$(ls -d "$HOME"/.cargo/registry/src/*/libsodium-sys-0.2.7/msvc/Win32/Release/v142 | head -n 1)"
           echo "SODIUM_WIN32_DIR=$SODIUM_WIN32_DIR"
           ls "$SODIUM_WIN32_DIR/libsodium.lib"
-          export SODIUM_LIB_DIR="$SODIUM_WIN32_DIR"
+          mkdir -p .cargo
+          SODIUM_WIN32_NATIVE="$(cygpath -m "$SODIUM_WIN32_DIR")"
+          if [ -f .cargo/config.toml ] && grep -q '^\[target\.i686-pc-windows-msvc\]' .cargo/config.toml; then
+            echo "i686 target table already present in .cargo/config.toml"
+          else
+            printf '\n[target.i686-pc-windows-msvc]\nrustflags = ["-L", "native=%s"]\n' "$SODIUM_WIN32_NATIVE" >> .cargo/config.toml
+          fi
+          cat .cargo/config.toml
           cargo build --target ${{ matrix.job.target }} --features inline,vram,hwcodec --release --bins
           mkdir -p ./Release
           mv ./target/${{ matrix.job.target }}/release/rustdesk.exe ./Release/rustdesk.exe
