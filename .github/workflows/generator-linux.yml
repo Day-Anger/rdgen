@@ -1654,14 +1654,12 @@ jobs:
         run: |
           if [ "${{ env.appname }}" != "rustdesk" ] && [ "${{ env.appname }}" != "RustDesk" ]; then
             # The recipe's script does `bsdtar -zxvf rustdesk.deb`, so after the sed
-            # below it looks for <appname>.deb -- the deb must end up under exactly
-            # that name. Renaming it to <filename>.deb only matched when appname and
-            # filename happened to be equal. The deb is moved out of the way first
-            # because `appimage/*` globs it too, and sed over an ar archive rewrites
-            # bytes inside it.
+            # below it looks for the renamed deb -- the deb must end up under exactly
+            # that name. The deb is moved out of the way first because `appimage/*`
+            # globs it too, and sed over an ar archive rewrites bytes inside it.
             mv appimage/rustdesk.deb "${RUNNER_TEMP}/appimage-payload.deb"
-            sed -ie "s|rustdesk|${{ env.appname }}|g" appimage/*
-            mv "${RUNNER_TEMP}/appimage-payload.deb" "appimage/${{ env.appname }}.deb"
+            sed -ie "s|rustdesk|${{ env.filename }}|g" appimage/*
+            mv "${RUNNER_TEMP}/appimage-payload.deb" "appimage/${{ env.filename }}.deb"
           fi
           sudo apt-get update -y
           sudo apt-get install -y libarchive-tools libfuse2
