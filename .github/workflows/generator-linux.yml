@@ -1747,6 +1747,16 @@ jobs:
               sed -ie "s|@@RDGEN_FLAT_0@@|${{ env.filename }}|g" flatpak/*
               sed -ie "s|@@RDGEN_FLAT_1@@|${{ env.filename }}|g" flatpak/*
               mv flatpak/rustdesk.deb "flatpak/${{ env.filename }}.deb" 2>/dev/null || true
+              # manifest references the metainfo/appdata file under its new id-based
+              # name -> rename whichever exists (naming differs across versions)
+              for metafile in flatpak/*.metainfo.xml flatpak/*.appdata.xml; do
+                [ -f "$metafile" ] || continue
+                case "$metafile" in
+                  *.metainfo.xml) ext="metainfo.xml" ;;
+                  *.appdata.xml) ext="appdata.xml" ;;
+                esac
+                mv "$metafile" "flatpak/com.${{ env.filename }}.${{ env.filename }}.$ext"
+              done
             fi
             # disable git safe.directory
             git config --global --add safe.directory "*"
