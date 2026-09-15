@@ -528,6 +528,14 @@ jobs:
           python3 res/inline-sciter.py
           # Patch sciter x86
           sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
+          # libsodium-sys 0.2.7 build.rs selects its prebuilt lib via HOST cfg
+          # (target_pointer_width), so cross-compiling host-x64 -> target-x86
+          # wrongly links msvc/x64 (LNK2019 x132). Force the Win32 prebuilt.
+          cargo fetch
+          SODIUM_WIN32_DIR="$(ls -d "$HOME"/.cargo/registry/src/*/libsodium-sys-0.2.7/msvc/Win32/Release/v142 | head -n 1)"
+          echo "SODIUM_WIN32_DIR=$SODIUM_WIN32_DIR"
+          ls "$SODIUM_WIN32_DIR/libsodium.lib"
+          export SODIUM_LIB_DIR="$SODIUM_WIN32_DIR"
           cargo build --target ${{ matrix.job.target }} --features inline,vram,hwcodec --release --bins
           mkdir -p ./Release
           mv ./target/${{ matrix.job.target }}/release/rustdesk.exe ./Release/rustdesk.exe
