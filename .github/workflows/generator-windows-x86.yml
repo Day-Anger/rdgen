@@ -526,7 +526,11 @@ jobs:
         id: build
         shell: bash
         run: |
-          python3 res/inline-sciter.py
+          # inline-sciter.py opens .tis/.html without an encoding, so on a
+          # non-UTF-8-locale runner (windows-2022 default) any non-ASCII
+          # branding text is misdecoded and baked into the binary mangled.
+          # Force UTF-8 for this invocation only.
+          PYTHONUTF8=1 python3 res/inline-sciter.py
           # Patch sciter x86
           sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
           # libsodium-sys 0.2.7 build.rs selects its prebuilt lib via HOST cfg
