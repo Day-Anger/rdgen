@@ -8,8 +8,8 @@ on:
         required: true
         default: ''
         type: string
-      zip_url:
-        description: 'url to zip of json'
+      zip_file:
+        description: 'secrets zip filename on the rdgen server (uuid-named)'
         required: true
         default: ''
         type: string
@@ -48,8 +48,9 @@ env:
 jobs:
   setup:
     uses: ./.github/workflows/fetch-encrypted-secrets.yml
+    secrets: inherit
     with:
-      zip_url_json: ${{ inputs.zip_url }}
+      zip_file: ${{ inputs.zip_file }}
 
   build-for-windows-sciter:
     name: ${{ matrix.job.target }} (${{ matrix.job.os }})

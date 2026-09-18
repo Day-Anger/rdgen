@@ -289,17 +289,14 @@ def generate_custom_client(params, full_url):
     if os.path.exists(temp_json_path):
         os.remove(temp_json_path)
 
-    zipJson = {}
-    zipJson['url'] = full_url
-    zipJson['file'] = zip_filename
-
-    zip_url = json.dumps(zipJson)
-
+    # Only the random zip filename travels as a dispatch input (visible
+    # in run logs). The server base URL comes from the GENURL repo secret
+    # inside the workflow, so it never appears in logs.
     data = {
         "ref":_settings.GHBRANCH,
         "inputs":{
             "version":version,
-            "zip_url":zip_url
+            "zip_file":zip_filename
         },
         "return_run_details": True
     } 
